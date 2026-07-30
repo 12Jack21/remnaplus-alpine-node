@@ -51,6 +51,8 @@ distribution_files=(
   "${repo_root}/scripts/install-env-helpers.sh"
   "${repo_root}/deploy/remnawave-node.openrc"
   "${repo_root}/deploy/remnawave-node-run.sh"
+  "${repo_root}/cmd/remnanode-lite/main.go"
+  "${repo_root}/internal/doctor/doctor.go"
 )
 assert_absent 'systemd|systemctl|journalctl|apt( |-)install|/etc/debian|install-node\.sh|/main/' "${distribution_files[@]}"
 

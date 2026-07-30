@@ -13,7 +13,7 @@ import (
 )
 
 const defaultEnvPath = "/etc/remnanode/node.env"
-const defaultUnitPath = "/etc/systemd/system/remnawave-node.service"
+const defaultServicePath = "/etc/init.d/remnawave-node"
 
 type result struct {
 	level   string
@@ -40,7 +40,7 @@ func Run(args []string) int {
 
 	var results []result
 
-	results = append(results, checkSystemdCapNetAdmin())
+	results = append(results, checkOpenRCService())
 	results = append(results, checkCapNetAdmin())
 
 	cfg, cfgErr := loadConfig(envPath)
@@ -104,29 +104,29 @@ func checkCapNetAdmin() result {
 		level:   "WARN",
 		title:   "CAP_NET_ADMIN",
 		detail:  "当前进程未具备（nftables / ss -K 不可用）",
-		fixHint: "通过 systemd 启动：确认 unit 含 AmbientCapabilities=CAP_NET_ADMIN，然后 systemctl daemon-reload && systemctl restart remnawave-node",
+		fixHint: "运行 setcap cap_net_admin+ep /usr/local/bin/remnanode-lite，然后 rc-service remnawave-node restart",
 	}
 }
 
-func checkSystemdCapNetAdmin() result {
-	data, err := os.ReadFile(defaultUnitPath)
+func checkOpenRCService() result {
+	data, err := os.ReadFile(defaultServicePath)
 	if err != nil {
 		return result{
 			level:   "WARN",
-			title:   "systemd unit",
-			detail:  defaultUnitPath + " 未找到",
-			fixHint: "运行 install-node.sh 或 upgrade.sh 安装官方 unit",
+			title:   "OpenRC service",
+			detail:  defaultServicePath + " 未找到",
+			fixHint: "重新运行固定版本 install-node-alpine.sh 或 upgrade.sh 安装 OpenRC 服务",
 		}
 	}
 	content := string(data)
-	if strings.Contains(content, "AmbientCapabilities=CAP_NET_ADMIN") {
-		return result{level: "OK", title: "systemd unit", detail: "已配置 AmbientCapabilities=CAP_NET_ADMIN"}
+	if strings.Contains(content, "#!/sbin/openrc-run") && strings.Contains(content, "remnawave-node-run") {
+		return result{level: "OK", title: "OpenRC service", detail: defaultServicePath + " 已安装"}
 	}
 	return result{
 		level:   "WARN",
-		title:   "systemd unit",
-		detail:  "未包含 AmbientCapabilities=CAP_NET_ADMIN",
-		fixHint: "sudo curl -fsSL https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v" + version.Version + "/deploy/remnawave-node.service -o " + defaultUnitPath + " && sudo systemctl daemon-reload && sudo systemctl restart remnawave-node",
+		title:   "OpenRC service",
+		detail:  defaultServicePath + " 不是预期的 OpenRC 服务文件",
+		fixHint: "重新运行固定版本 upgrade.sh 刷新 OpenRC 服务，然后 rc-service remnawave-node restart",
 	}
 }
 
@@ -138,7 +138,7 @@ func checkSecret(cfg config.Config) []result {
 		level:   "ERROR",
 		title:   "Secret Key",
 		detail:  "未配置（SECRET_KEY 或 SECRET_KEY_FILE 为空）",
-		fixHint: "编辑 /etc/remnanode/secret.key 粘贴 Panel 下发的 Key，然后 systemctl restart remnawave-node",
+		fixHint: "编辑 /etc/remnanode/secret.key 粘贴 Panel 下发的 Key，然后 rc-service remnawave-node restart",
 	}}
 }
 
@@ -180,7 +180,7 @@ func checkXrayBinary(bin string) []result {
 			level:   "ERROR",
 			title:   "rw-core",
 			detail:  bin + " 不存在",
-			fixHint: "运行 scripts/install-xray.sh 或 install-node.sh（勿加 --skip-xray）",
+			fixHint: "运行 scripts/install-xray.sh 或 install-node-alpine.sh（勿加 --skip-xray）",
 		}}
 	}
 	if info.Mode()&0o111 == 0 {
@@ -253,10 +253,14 @@ func checkCommand(name, purpose string) []result {
 	if path, err := exec.LookPath(name); err == nil {
 		return []result{{level: "OK", title: name, detail: path + "（" + purpose + "）"}}
 	}
+	packageName := name
+	if name == "ss" {
+		packageName = "iproute2"
+	}
 	return []result{{
 		level:   "WARN",
 		title:   name,
 		detail:  "未安装（" + purpose + "）",
-		fixHint: "Debian/Ubuntu: apt install iproute2 " + name,
+		fixHint: "Alpine: apk add --no-cache " + packageName,
 	}}
 }
