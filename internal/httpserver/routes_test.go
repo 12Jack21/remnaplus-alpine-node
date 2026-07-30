@@ -6,10 +6,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/12Jack21/remnaplus-alpine-node/internal/auditlog"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/stats"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/xtls"
 )
@@ -107,5 +110,57 @@ func TestHandleNodeRoutesTCPConnections(t *testing.T) {
 	}
 	if body.Response.Connections == nil {
 		t.Fatal("connections must be an array, not null")
+	}
+}
+
+func TestHandleNodeRoutesAuditLogAPIs(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	accessPath := filepath.Join(directory, "access.log")
+	errorPath := filepath.Join(directory, "error.log")
+	if err := os.WriteFile(accessPath, []byte("2026/07/18 00:00:00 access\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(errorPath, []byte("2026/07/18 00:00:00 error\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{auditLogService: auditlog.NewService(accessPath, errorPath)}
+
+	for _, route := range []string{
+		"/node/stats/get-audit-log-chunk?source=access&offset=0",
+		"/node/stats/get-audit-log-source-metadata?source=error",
+	} {
+		req := httptest.NewRequest(http.MethodGet, route, nil)
+		rec := httptest.NewRecorder()
+		server.handleNodeRoutes(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want 200: %s", route, rec.Code, rec.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body["response"] == nil {
+			t.Fatalf("%s response = %s, error = %v", route, rec.Body.String(), err)
+		}
+	}
+
+	cleanReq := httptest.NewRequest(http.MethodPost, "/node/stats/clean-audit-logs", strings.NewReader(`{"retentionDays":1}`))
+	cleanRec := httptest.NewRecorder()
+	server.handleNodeRoutes(cleanRec, cleanReq)
+	if cleanRec.Code != http.StatusOK {
+		t.Fatalf("clean status = %d, want 200: %s", cleanRec.Code, cleanRec.Body.String())
+	}
+
+	conflictReq := httptest.NewRequest(http.MethodGet, "/node/stats/get-audit-log-chunk?source=access&expectedInode=changed", nil)
+	conflictRec := httptest.NewRecorder()
+	server.handleNodeRoutes(conflictRec, conflictReq)
+	if conflictRec.Code != http.StatusConflict {
+		t.Fatalf("conflict status = %d, want 409", conflictRec.Code)
+	}
+	var conflict map[string]any
+	if err := json.Unmarshal(conflictRec.Body.Bytes(), &conflict); err != nil {
+		t.Fatal(err)
+	}
+	if conflict["message"] != "AUDIT_LOG_INODE_CHANGED" {
+		t.Fatalf("conflict response = %v", conflict)
 	}
 }

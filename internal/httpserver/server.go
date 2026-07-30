@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/12Jack21/remnaplus-alpine-node/internal/auditlog"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/auth"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/bodylimit"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/config"
@@ -23,11 +24,12 @@ import (
 )
 
 type Server struct {
-	httpServer     *http.Server
-	manager        *xray.Manager
-	statsService   *stats.Service
-	handlerService *nodehandler.Service
-	pluginService  *plugin.Service
+	httpServer      *http.Server
+	manager         *xray.Manager
+	statsService    *stats.Service
+	auditLogService *auditlog.Service
+	handlerService  *nodehandler.Service
+	pluginService   *plugin.Service
 }
 
 func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator, manager *xray.Manager, pluginService *plugin.Service, dropper *connections.Dropper) (*Server, error) {
@@ -38,10 +40,11 @@ func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator
 
 	mux := http.NewServeMux()
 	server := &Server{
-		manager:        manager,
-		statsService:   stats.NewService(manager, pluginService),
-		handlerService: nodehandler.NewService(manager, dropper),
-		pluginService:  pluginService,
+		manager:         manager,
+		statsService:    stats.NewService(manager, pluginService),
+		auditLogService: auditlog.NewServiceForLogDir(cfg.LogDir),
+		handlerService:  nodehandler.NewService(manager, dropper),
+		pluginService:   pluginService,
 	}
 
 	protected := validator.Middleware(bodylimit.DecompressMiddleware(bodylimit.LimitMiddleware(http.HandlerFunc(server.handleNodeRoutes))))
@@ -96,6 +99,12 @@ func (s *Server) handleNodeRoutes(w http.ResponseWriter, r *http.Request) {
 		s.statsService.HandleGetSystemStats(w, write)
 	case r.Method == http.MethodGet && path == "/node/stats/get-tcp-connections":
 		s.statsService.HandleGetTCPConnections(w, write)
+	case r.Method == http.MethodGet && path == "/node/stats/get-audit-log-chunk":
+		s.handleGetAuditLogChunk(w, r)
+	case r.Method == http.MethodGet && path == "/node/stats/get-audit-log-source-metadata":
+		s.handleGetAuditLogSourceMetadata(w, r)
+	case r.Method == http.MethodPost && path == "/node/stats/clean-audit-logs":
+		s.handleCleanAuditLogs(w, r)
 	case r.Method == http.MethodPost && path == "/node/stats/get-users-stats":
 		s.statsService.HandleGetUsersStats(w, r, write)
 	case r.Method == http.MethodPost && path == "/node/stats/get-inbound-stats":

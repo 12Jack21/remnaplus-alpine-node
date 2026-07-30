@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/12Jack21/remnaplus-alpine-node/internal/auditlog"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/connections"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/nodehandler"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/plugin"
@@ -18,33 +21,36 @@ import (
 )
 
 var responseShapeTests = map[string]func(t *testing.T){
-	"/node/xray/start":                      testXrayStartResponseShape,
-	"/node/xray/stop":                       testXrayStopResponseShape,
-	"/node/xray/healthcheck":                testXrayHealthcheckResponseShape,
-	"/node/stats/get-user-online-status":    testGetUserOnlineStatusResponseShape,
-	"/node/stats/get-tcp-connections":       testGetTCPConnectionsResponseShape,
-	"/node/stats/get-system-stats":          testGetSystemStatsResponseShape,
-	"/node/stats/get-users-stats":           testGetUsersStatsResponseShape,
-	"/node/stats/get-inbound-stats":         testGetInboundStatsResponseShape,
-	"/node/stats/get-outbound-stats":        testGetOutboundStatsResponseShape,
-	"/node/stats/get-all-inbounds-stats":    testGetAllInboundsStatsResponseShape,
-	"/node/stats/get-all-outbounds-stats":   testGetAllOutboundsStatsResponseShape,
-	"/node/stats/get-combined-stats":        testGetCombinedStatsResponseShape,
-	"/node/stats/get-user-ip-list":          testGetUserIPListResponseShape,
-	"/node/stats/get-users-ip-list":         testGetUsersIPListResponseShape,
-	"/node/handler/add-user":                testAddUserResponseShape,
-	"/node/handler/remove-user":             testRemoveUserResponseShape,
-	"/node/handler/get-inbound-users-count": testGetInboundUsersCountResponseShape,
-	"/node/handler/get-inbound-users":       testGetInboundUsersResponseShape,
-	"/node/handler/add-users":               testAddUsersResponseShape,
-	"/node/handler/remove-users":            testRemoveUsersResponseShape,
-	"/node/handler/drop-users-connections":  testDropUsersConnectionsResponseShape,
-	"/node/handler/drop-ips":                testDropIPsResponseShape,
-	"/node/plugin/sync":                     testPluginSyncResponseShape,
-	"/node/plugin/torrent-blocker/collect":  testPluginCollectReportsResponseShape,
-	"/node/plugin/nftables/block-ips":       testPluginBlockIPsResponseShape,
-	"/node/plugin/nftables/unblock-ips":     testPluginUnblockIPsResponseShape,
-	"/node/plugin/nftables/recreate-tables": testPluginRecreateTablesResponseShape,
+	"/node/xray/start":                          testXrayStartResponseShape,
+	"/node/xray/stop":                           testXrayStopResponseShape,
+	"/node/xray/healthcheck":                    testXrayHealthcheckResponseShape,
+	"/node/stats/get-user-online-status":        testGetUserOnlineStatusResponseShape,
+	"/node/stats/get-tcp-connections":           testGetTCPConnectionsResponseShape,
+	"/node/stats/get-audit-log-chunk":           testGetAuditLogChunkResponseShape,
+	"/node/stats/get-audit-log-source-metadata": testGetAuditLogSourceMetadataResponseShape,
+	"/node/stats/clean-audit-logs":              testCleanAuditLogsResponseShape,
+	"/node/stats/get-system-stats":              testGetSystemStatsResponseShape,
+	"/node/stats/get-users-stats":               testGetUsersStatsResponseShape,
+	"/node/stats/get-inbound-stats":             testGetInboundStatsResponseShape,
+	"/node/stats/get-outbound-stats":            testGetOutboundStatsResponseShape,
+	"/node/stats/get-all-inbounds-stats":        testGetAllInboundsStatsResponseShape,
+	"/node/stats/get-all-outbounds-stats":       testGetAllOutboundsStatsResponseShape,
+	"/node/stats/get-combined-stats":            testGetCombinedStatsResponseShape,
+	"/node/stats/get-user-ip-list":              testGetUserIPListResponseShape,
+	"/node/stats/get-users-ip-list":             testGetUsersIPListResponseShape,
+	"/node/handler/add-user":                    testAddUserResponseShape,
+	"/node/handler/remove-user":                 testRemoveUserResponseShape,
+	"/node/handler/get-inbound-users-count":     testGetInboundUsersCountResponseShape,
+	"/node/handler/get-inbound-users":           testGetInboundUsersResponseShape,
+	"/node/handler/add-users":                   testAddUsersResponseShape,
+	"/node/handler/remove-users":                testRemoveUsersResponseShape,
+	"/node/handler/drop-users-connections":      testDropUsersConnectionsResponseShape,
+	"/node/handler/drop-ips":                    testDropIPsResponseShape,
+	"/node/plugin/sync":                         testPluginSyncResponseShape,
+	"/node/plugin/torrent-blocker/collect":      testPluginCollectReportsResponseShape,
+	"/node/plugin/nftables/block-ips":           testPluginBlockIPsResponseShape,
+	"/node/plugin/nftables/unblock-ips":         testPluginUnblockIPsResponseShape,
+	"/node/plugin/nftables/recreate-tables":     testPluginRecreateTablesResponseShape,
 }
 
 func TestOfficialResponseShapes(t *testing.T) {
@@ -146,6 +152,96 @@ func testGetTCPConnectionsResponseShape(t *testing.T) {
 	assertJSONPath(t, raw, "response.collectedAt")
 	assertJSONPathArray(t, raw, "response.connections")
 }
+
+func testGetAuditLogChunkResponseShape(t *testing.T) {
+	service := auditlog.NewService(filepath.Join(t.TempDir(), "access.log"), filepath.Join(t.TempDir(), "error.log"))
+	chunk, err := service.ReadChunk(auditlog.ChunkRequest{Source: auditlog.SourceAccess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := encodeEnvelope(chunk)
+	assertJSONPath(t, raw, "response.fileInode")
+	assertJSONPathArray(t, raw, "response.lines")
+	assertJSONPath(t, raw, "response.nextOffset")
+	assertJSONPath(t, raw, "response.readStart")
+	assertJSONPath(t, raw, "response.source")
+	assertJSONPath(t, raw, "response.totalSize")
+}
+
+func testGetAuditLogSourceMetadataResponseShape(t *testing.T) {
+	service := auditlog.NewService(filepath.Join(t.TempDir(), "access.log"), filepath.Join(t.TempDir(), "error.log"))
+	metadata, err := service.SourceMetadata(auditlog.SourceError)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := encodeEnvelope(metadata)
+	assertJSONPath(t, raw, "response.earliestTimestamp")
+	assertJSONPath(t, raw, "response.inode")
+	assertJSONPath(t, raw, "response.latestTimestamp")
+	assertJSONPath(t, raw, "response.source")
+	assertJSONPath(t, raw, "response.totalSize")
+}
+
+func testCleanAuditLogsResponseShape(t *testing.T) {
+	raw := encodeEnvelope(auditlog.CleanResult{})
+	assertJSONPath(t, raw, "response.files")
+	assertJSONPath(t, raw, "response.keptLines")
+	assertJSONPath(t, raw, "response.removedLines")
+	assertJSONPath(t, raw, "response.reclaimedBytes")
+}
+
+func TestAuditLogResponseShapes(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	accessPath := filepath.Join(directory, "access.log")
+	if err := os.WriteFile(accessPath, []byte("2026/07/18 00:00:00 access\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	service := auditlog.NewService(accessPath, filepath.Join(directory, "error.log"))
+	chunk, err := service.ReadChunk(auditlog.ChunkRequest{Source: auditlog.SourceAccess, Offset: contractInt64Ptr(0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunkRaw := encodeEnvelope(chunk)
+	for _, path := range []string{
+		"response.fileInode",
+		"response.lines",
+		"response.nextOffset",
+		"response.readStart",
+		"response.source",
+		"response.totalSize",
+	} {
+		assertJSONPath(t, chunkRaw, path)
+	}
+
+	metadata, err := service.SourceMetadata(auditlog.SourceAccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataRaw := encodeEnvelope(metadata)
+	for _, path := range []string{
+		"response.earliestTimestamp",
+		"response.inode",
+		"response.latestTimestamp",
+		"response.source",
+		"response.totalSize",
+	} {
+		assertJSONPath(t, metadataRaw, path)
+	}
+
+	cleanRaw := encodeEnvelope(auditlog.CleanResult{})
+	for _, path := range []string{
+		"response.files",
+		"response.keptLines",
+		"response.removedLines",
+		"response.reclaimedBytes",
+	} {
+		assertJSONPath(t, cleanRaw, path)
+	}
+}
+
+func contractInt64Ptr(value int64) *int64 { return &value }
 
 func testGetUsersStatsResponseShape(t *testing.T) {
 	service := statsService(t)
