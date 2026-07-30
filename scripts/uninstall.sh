@@ -2,7 +2,7 @@
 # github.com/12Jack21/remnaplus-alpine-node 卸载脚本（Alpine OpenRC）
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.0.1"
 PREFIX="/usr/local/bin"
 BIN_NAME="remnanode-lite"
 RUN_WRAPPER="${PREFIX}/remnawave-node-run"

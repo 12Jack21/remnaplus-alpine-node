@@ -43,3 +43,9 @@ func TestStringIncludesBothVersions(t *testing.T) {
 		t.Fatalf("String() missing contract version: %q", got)
 	}
 }
+
+func TestReleaseVersionIsCurrentPatch(t *testing.T) {
+	if Version != "1.0.1" {
+		t.Fatalf("Version = %q, want 1.0.1", Version)
+	}
+}

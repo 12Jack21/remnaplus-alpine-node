@@ -2,7 +2,7 @@
 # github.com/12Jack21/remnaplus-alpine-node Alpine Linux 一键安装（OpenRC）
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.0.1"
 PREFIX="/usr/local/bin"
 ETC_DIR="/etc/remnanode"
 DATA_DIR="/var/lib/remnanode"

@@ -24,12 +24,12 @@ Create an `ALPINE_NATIVE` node in the RemnaPlus dashboard and use the pinned
 install command shown there. The installer asks for the node `SECRET_KEY`
 separately; the generated command never embeds credentials.
 
-For the initial `v1.0.0` release:
+For the current `v1.0.1` release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v1.0.0/scripts/install-node-alpine.sh \
+curl -fsSL https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v1.0.1/scripts/install-node-alpine.sh \
   -o /tmp/remnaplus-alpine-node.sh
-sudo RNL_TAG=v1.0.0 bash /tmp/remnaplus-alpine-node.sh --install --port 2222
+sudo RNL_TAG=v1.0.1 bash /tmp/remnaplus-alpine-node.sh --install --port 2222
 ```
 
 The service configuration is stored in `/etc/remnanode/node.env`, state in

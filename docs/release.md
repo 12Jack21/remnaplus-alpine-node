@@ -16,7 +16,7 @@ Before publishing, these values must agree:
 | `scripts/uninstall.sh` | `VERSION=` |
 | RemnaPlus backend metadata | recommended Alpine tag |
 
-Initial release: `v1.0.0`.
+Current release: `v1.0.1`. The immutable `v1.0.0` tag remains the previous known-good rollback target.
 
 ## Local Gates
 
@@ -48,9 +48,9 @@ extracting it.
 On an Alpine/OpenRC VPS:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v1.0.0/scripts/install-node-alpine.sh \
+curl -fsSL https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v1.0.1/scripts/install-node-alpine.sh \
   -o /tmp/remnaplus-alpine-node.sh
-RNL_TAG=v1.0.0 bash /tmp/remnaplus-alpine-node.sh --install --port 2222
+RNL_TAG=v1.0.1 bash /tmp/remnaplus-alpine-node.sh --install --port 2222
 rc-service remnawave-node status
 remnanode-lite doctor
 tail -n 50 /var/log/remnanode/openrc.log
