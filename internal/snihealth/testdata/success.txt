@@ -1,0 +1,17 @@
+TLS ping: example.com:443
+Using IP: 93.184.216.34:443
+-------------------
+Pinging without SNI
+Handshake succeeded
+TLS Version: TLS 1.3
+TLS Post-Quantum key exchange: false (X25519)
+Cert's allowed domains: [example.com *.example.com]
+-------------------
+Pinging with SNI
+Handshake succeeded
+TLS Version: TLS 1.3
+TLS Post-Quantum key exchange: true (X25519MLKEM768)
+Certificate chain's total length: 3048 (certs count: 2)
+Cert's allowed domains: [example.com *.example.com]
+-------------------
+TLS ping finished

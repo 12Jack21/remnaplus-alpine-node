@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/12Jack21/remnaplus-alpine-node/internal/auditlog"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/snihealth"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/stats"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/xtls"
 )
@@ -164,3 +165,47 @@ func TestHandleNodeRoutesAuditLogAPIs(t *testing.T) {
 		t.Fatalf("conflict response = %v", conflict)
 	}
 }
+
+func TestHandleNodeRoutesSNIHealthAPIs(t *testing.T) {
+	t.Parallel()
+
+	provider := &routeSNIProvider{}
+	service := snihealth.NewService(provider, func(_ context.Context, target snihealth.Target) snihealth.Result {
+		return snihealth.Result{
+			CorrelationID: target.CorrelationID, InboundTag: target.InboundTag, SNI: target.SNI, Dest: target.Dest,
+			Hostname: target.NormalizedSNI, Port: target.Port, Verdict: snihealth.VerdictUsable, Healthy: true,
+			Checks: []snihealth.Check{}, Addresses: []snihealth.Address{}, LatencySamples: []int{}, CheckedAt: time.Now(),
+		}
+	}, time.Now)
+	server := &Server{sniHealthService: service}
+
+	status := httptest.NewRecorder()
+	server.handleNodeRoutes(status, httptest.NewRequest(http.MethodGet, "/node/sni-health/status", nil))
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), `"results"`) {
+		t.Fatalf("status = %d %s", status.Code, status.Body.String())
+	}
+
+	probe := httptest.NewRecorder()
+	server.handleNodeRoutes(probe, httptest.NewRequest(http.MethodPost, "/node/sni-health/probe", strings.NewReader(`{"mode":"candidates","targets":[{"correlationId":"candidate-1","hostname":"Example.COM.","port":443}]}`)))
+	if probe.Code != http.StatusOK || !strings.Contains(probe.Body.String(), `"aggregateVerdict":"usable"`) {
+		t.Fatalf("probe = %d %s", probe.Code, probe.Body.String())
+	}
+
+	bad := httptest.NewRecorder()
+	server.handleNodeRoutes(bad, httptest.NewRequest(http.MethodPost, "/node/sni-health/probe", strings.NewReader(`{"mode":"active","targets":[]}`)))
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("invalid active probe = %d %s", bad.Code, bad.Body.String())
+	}
+}
+
+type routeSNIProvider struct{}
+
+func (*routeSNIProvider) CurrentConfig() map[string]any {
+	return map[string]any{"inbounds": []any{map[string]any{
+		"tag": "main", "streamSettings": map[string]any{"realitySettings": map[string]any{
+			"dest": "example.com:443", "serverNames": []any{"example.com"},
+		}},
+	}}}
+}
+
+func (*routeSNIProvider) InboundTags() []string { return []string{"main"} }

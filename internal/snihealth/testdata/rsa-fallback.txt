@@ -1,0 +1,10 @@
+TLS ping: example.com:443
+Using IP: 93.184.216.34:443
+-------------------
+Pinging with SNI
+Handshake succeeded
+TLS Version: TLS 1.3
+TLS Post-Quantum key exchange: false (RSA Exchange)
+Cert's allowed domains: [example.com]
+-------------------
+TLS ping finished

@@ -15,6 +15,7 @@ import (
 	"github.com/12Jack21/remnaplus-alpine-node/internal/connections"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/nodehandler"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/plugin"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/snihealth"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/stats"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/xray"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/xtls"
@@ -38,6 +39,8 @@ var responseShapeTests = map[string]func(t *testing.T){
 	"/node/stats/get-combined-stats":            testGetCombinedStatsResponseShape,
 	"/node/stats/get-user-ip-list":              testGetUserIPListResponseShape,
 	"/node/stats/get-users-ip-list":             testGetUsersIPListResponseShape,
+	"/node/sni-health/status":                   testSNIHealthStatusResponseShape,
+	"/node/sni-health/probe":                    testSNIHealthProbeResponseShape,
 	"/node/handler/add-user":                    testAddUserResponseShape,
 	"/node/handler/remove-user":                 testRemoveUserResponseShape,
 	"/node/handler/get-inbound-users-count":     testGetInboundUsersCountResponseShape,
@@ -152,6 +155,62 @@ func testGetTCPConnectionsResponseShape(t *testing.T) {
 	assertJSONPath(t, raw, "response.collectedAt")
 	assertJSONPathArray(t, raw, "response.connections")
 }
+
+func testSNIHealthStatusResponseShape(t *testing.T) {
+	raw := encodeEnvelope(snihealth.StatusResponse{
+		Results: []snihealth.Result{sniContractResult()}, UnhealthyCount: 0, CheckedAt: time.Now(),
+	})
+	assertSNIResultShape(t, raw)
+	assertJSONPath(t, raw, "response.unhealthyCount")
+	assertJSONPath(t, raw, "response.checkedAt")
+}
+
+func testSNIHealthProbeResponseShape(t *testing.T) {
+	raw := encodeEnvelope(snihealth.BuildProbeResponse("active", []snihealth.Result{sniContractResult()}, time.Now()))
+	assertJSONPath(t, raw, "response.mode")
+	assertSNIResultShape(t, raw)
+	assertJSONPath(t, raw, "response.aggregateVerdict")
+	assertJSONPath(t, raw, "response.counts.usable")
+	assertJSONPath(t, raw, "response.counts.warning")
+	assertJSONPath(t, raw, "response.counts.unusable")
+	assertJSONPath(t, raw, "response.counts.unverified")
+	assertJSONPath(t, raw, "response.unhealthyCount")
+	assertJSONPath(t, raw, "response.checkedAt")
+}
+
+func sniContractResult() snihealth.Result {
+	latency := 40
+	correlationID := "contract-1"
+	inboundTag := "main"
+	return snihealth.Result{
+		CorrelationID: &correlationID, InboundTag: &inboundTag, SNI: "example.com", Dest: "example.com:443", Hostname: "example.com", Port: 443,
+		Verdict: snihealth.VerdictUsable, Healthy: true, LatencyMS: &latency,
+		Checks:         []snihealth.Check{{ID: "dns-resolution", Status: snihealth.StatusPass, ObservedValue: []string{"93.184.216.34"}, Reason: "resolved"}},
+		Addresses:      []snihealth.Address{{Address: "93.184.216.34", Family: 4, IsPublic: true, Status: snihealth.StatusPass}},
+		LatencySamples: []int{40, 41, 39}, JitterMS: contractIntPtr(2), CheckedAt: time.Now(),
+	}
+}
+
+func assertSNIResultShape(t *testing.T, raw []byte) {
+	t.Helper()
+	var body struct {
+		Response struct {
+			Results []json.RawMessage `json:"results"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil || len(body.Response.Results) == 0 {
+		t.Fatalf("missing SNI result: %s (%v)", string(raw), err)
+	}
+	result := body.Response.Results[0]
+	for _, field := range []string{
+		"correlationId", "inboundTag", "sni", "dest", "hostname", "port", "verdict", "healthy",
+		"latencyMs", "error", "checks", "addresses", "latencySamplesMs", "jitterMs", "checkedAt",
+	} {
+		assertJSONPath(t, result, field)
+	}
+}
+
+func contractIntPtr(value int) *int { return &value }
 
 func testGetAuditLogChunkResponseShape(t *testing.T) {
 	service := auditlog.NewService(filepath.Join(t.TempDir(), "access.log"), filepath.Join(t.TempDir(), "error.log"))

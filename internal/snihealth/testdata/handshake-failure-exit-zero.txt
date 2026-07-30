@@ -1,0 +1,10 @@
+TLS ping: example.com:443
+Using IP: 192.0.2.1:443
+-------------------
+Pinging without SNI
+Handshake failure: remote error: tls: unrecognized name
+-------------------
+Pinging with SNI
+Handshake failure: remote error: tls: handshake failure
+-------------------
+TLS ping finished

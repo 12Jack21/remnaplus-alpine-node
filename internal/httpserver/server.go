@@ -19,17 +19,19 @@ import (
 	"github.com/12Jack21/remnaplus-alpine-node/internal/nodehandler"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/plugin"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/secret"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/snihealth"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/stats"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/xray"
 )
 
 type Server struct {
-	httpServer      *http.Server
-	manager         *xray.Manager
-	statsService    *stats.Service
-	auditLogService *auditlog.Service
-	handlerService  *nodehandler.Service
-	pluginService   *plugin.Service
+	httpServer       *http.Server
+	manager          *xray.Manager
+	statsService     *stats.Service
+	auditLogService  *auditlog.Service
+	sniHealthService *snihealth.Service
+	handlerService   *nodehandler.Service
+	pluginService    *plugin.Service
 }
 
 func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator, manager *xray.Manager, pluginService *plugin.Service, dropper *connections.Dropper) (*Server, error) {
@@ -39,12 +41,15 @@ func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator
 	}
 
 	mux := http.NewServeMux()
+	xrayPinger := snihealth.NewXrayPinger(cfg.XrayBin, nil)
+	probeEngine := snihealth.NewProbeEngine(snihealth.NativeProbeAdapters(xrayPinger), snihealth.DefaultProbeLimits(), time.Now)
 	server := &Server{
-		manager:         manager,
-		statsService:    stats.NewService(manager, pluginService),
-		auditLogService: auditlog.NewServiceForLogDir(cfg.LogDir),
-		handlerService:  nodehandler.NewService(manager, dropper),
-		pluginService:   pluginService,
+		manager:          manager,
+		statsService:     stats.NewService(manager, pluginService),
+		auditLogService:  auditlog.NewServiceForLogDir(cfg.LogDir),
+		sniHealthService: snihealth.NewService(manager, probeEngine.Probe, time.Now),
+		handlerService:   nodehandler.NewService(manager, dropper),
+		pluginService:    pluginService,
 	}
 
 	protected := validator.Middleware(bodylimit.DecompressMiddleware(bodylimit.LimitMiddleware(http.HandlerFunc(server.handleNodeRoutes))))
@@ -121,6 +126,12 @@ func (s *Server) handleNodeRoutes(w http.ResponseWriter, r *http.Request) {
 		s.statsService.HandleGetUserIPList(w, r, write)
 	case r.Method == http.MethodGet && path == "/node/stats/get-users-ip-list":
 		s.statsService.HandleGetUsersIPList(w, r, write)
+
+	// Reality SNI health
+	case r.Method == http.MethodGet && path == "/node/sni-health/status":
+		s.handleGetSNIHealthStatus(w, r)
+	case r.Method == http.MethodPost && path == "/node/sni-health/probe":
+		s.handleProbeSNIHealth(w, r)
 
 	// handler
 	case r.Method == http.MethodPost && path == "/node/handler/add-user":
