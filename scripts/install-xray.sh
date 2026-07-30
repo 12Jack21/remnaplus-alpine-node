@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # 安装 rw-core（Xray）及 geo 资源文件
-# 封装官方 Remnawave install-xray.sh
 set -euo pipefail
 
 XRAY_CORE_VERSION="${XRAY_CORE_VERSION:-v26.6.27}"
 UPSTREAM_REPO="${UPSTREAM_REPO:-XTLS}"
-INSTALL_SCRIPT="${INSTALL_SCRIPT:-https://raw.githubusercontent.com/remnawave/scripts/main/scripts/install-xray.sh}"
 NODE_ENV="${NODE_ENV:-/etc/remnanode/node.env}"
 
 usage() {
@@ -15,7 +13,7 @@ usage() {
 环境变量：
   XRAY_CORE_VERSION   rw-core 版本，默认 v26.6.27（Node 2.8.0 要求 ≥ 26.6.27）
   UPSTREAM_REPO       上游仓库标识，默认 XTLS
-  INSTALL_SCRIPT      安装脚本 URL
+  XRAY_RELEASE_BASE_URL  Xray Release 基础 URL（测试可覆盖）
   CUSTOM_CORE_URL     自定义 rw-core 下载 URL（对齐官方 Docker entrypoint，设置后跳过官方安装脚本）
 EOF
 }
@@ -36,7 +34,7 @@ load_env_var() {
 
 install_custom_core() {
   local url="$1"
-  local target="/usr/local/bin/xray"
+  local target="/usr/local/bin/rw-core"
   echo "CUSTOM_CORE_URL 已设置，从自定义地址下载 rw-core..."
   echo "  URL: ${url}"
   if command -v curl >/dev/null 2>&1; then
@@ -53,6 +51,35 @@ install_custom_core() {
     return 1
   fi
   echo "自定义 rw-core 已安装到 ${target}"
+}
+
+detect_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) echo "64" ;;
+    aarch64|arm64) echo "arm64-v8a" ;;
+    *)
+      echo "不支持的架构：$(uname -m)" >&2
+      exit 1
+      ;;
+  esac
+}
+
+install_release_core() {
+  local arch="$1"
+  local base_url="${XRAY_RELEASE_BASE_URL:-https://github.com/${UPSTREAM_REPO}/Xray-core/releases/download/${XRAY_CORE_VERSION}}"
+  local archive_name="Xray-linux-${arch}.zip"
+  local tmp
+  tmp="$(mktemp -d)"
+
+  echo "下载 rw-core ${XRAY_CORE_VERSION} (${archive_name})..."
+  curl -fsSL "${base_url}/${archive_name}" -o "${tmp}/${archive_name}"
+  unzip -q "${tmp}/${archive_name}" -d "$tmp"
+  install -m 0755 "${tmp}/xray" /usr/local/bin/rw-core
+  ln -sf /usr/local/bin/rw-core /usr/local/bin/xray
+  install -d /usr/local/share/xray
+  install -m 0644 "${tmp}/geoip.dat" /usr/local/share/xray/geoip.dat
+  install -m 0644 "${tmp}/geosite.dat" /usr/local/share/xray/geosite.dat
+  rm -rf "$tmp"
 }
 
 # ASN 前缀数据库（插件 asList 共享列表解析；对齐官方 2.8.0 的 /usr/local/share/asn）。
@@ -94,7 +121,7 @@ done
 
 require_root() {
   if [ "$(id -u)" -ne 0 ]; then
-    echo "请使用 root 运行：sudo bash install-xray.sh" >&2
+    echo "请使用 root 运行（Alpine 通常无 sudo）：su - 后执行 bash install-xray.sh" >&2
     exit 1
   fi
 }
@@ -104,27 +131,20 @@ require_root
 load_env_var CUSTOM_CORE_URL "$NODE_ENV"
 
 if ! command -v bash >/dev/null 2>&1; then
-  echo "缺少命令：bash（Debian/Ubuntu: apt install bash）" >&2
+  echo "缺少命令：bash（Alpine: apk add --no-cache bash）" >&2
   exit 1
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "[dry-run] curl -fsSL ${INSTALL_SCRIPT} | bash -s -- ${XRAY_CORE_VERSION} ${UPSTREAM_REPO}"
-  echo "[dry-run] ln -sf /usr/local/bin/xray /usr/local/bin/rw-core"
+  echo "[dry-run] curl -fsSL \${XRAY_RELEASE_BASE_URL:-https://github.com/${UPSTREAM_REPO}/Xray-core/releases/download/${XRAY_CORE_VERSION}}/Xray-linux-\$(detect_arch).zip"
+  echo "[dry-run] install /usr/local/bin/rw-core"
   exit 0
 fi
 
 if [ -n "${CUSTOM_CORE_URL:-}" ]; then
   install_custom_core "$CUSTOM_CORE_URL"
 else
-  echo "安装 rw-core ${XRAY_CORE_VERSION} (upstream=${UPSTREAM_REPO})..."
-  # 官方 install-xray.sh 使用 bash [[ 语法，不能用 Debian 默认 sh (dash)
-  curl -fsSL "${INSTALL_SCRIPT}" | bash -s -- "${XRAY_CORE_VERSION}" "${UPSTREAM_REPO}"
-fi
-
-if [ -x /usr/local/bin/xray ] && [ ! -e /usr/local/bin/rw-core ]; then
-  ln -sf /usr/local/bin/xray /usr/local/bin/rw-core
-  echo "已创建符号链接：/usr/local/bin/rw-core -> xray"
+  install_release_core "$(detect_arch)"
 fi
 
 if [ -x /usr/local/bin/rw-core ]; then

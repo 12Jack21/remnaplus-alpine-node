@@ -1,32 +1,14 @@
 # shellcheck shell=bash
-# Shared env/secret helpers for install-node.sh and install-node-alpine.sh
+# Shared env/secret helpers for Alpine install scripts
 # Expects: NODE_ENV, SECRET_FILE, DRY_RUN
 
-resolve_release_tag() {
-  local repo="${1:?}"
-  local fallback="${2:?}"
-  local tag=""
-  if command -v curl >/dev/null 2>&1; then
-    tag="$(curl -fsSL -H "Accept: application/vnd.github+json" \
-      "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null \
-      | tr -d '\n' \
-      | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-      | head -n1)" || true
-  fi
-  if [ -n "$tag" ]; then
-    printf '%s' "$tag"
-  else
-    printf '%s' "$fallback"
-  fi
-}
-
 resolve_install_tag() {
-  local repo="${1:?}"
+  local _repo="${1:?}"
   local fallback="${2:?}"
   if [ -n "${RNL_TAG:-}" ]; then
     printf '%s' "$RNL_TAG"
   else
-    resolve_release_tag "$repo" "$fallback"
+    printf '%s' "$fallback"
   fi
 }
 
@@ -164,7 +146,7 @@ prompt_secret_key() {
     return 0
   fi
 
-  print_env_config_hint "${RESTART_CMD:-systemctl restart remnawave-node}"
+  print_env_config_hint "${RESTART_CMD:-rc-service remnawave-node restart}"
 }
 
 cleanup_runtime() {
@@ -221,11 +203,7 @@ wait_for_service_stable() {
 
   while [ "$i" -lt "$max_wait" ]; do
     if ss -tln 2>/dev/null | grep -q ":${port} "; then
-      if command -v systemctl >/dev/null 2>&1; then
-        if systemctl is-active --quiet remnawave-node.service 2>/dev/null; then
-          return 0
-        fi
-      elif command -v rc-service >/dev/null 2>&1; then
+      if command -v rc-service >/dev/null 2>&1; then
         if rc-service remnawave-node status 2>/dev/null | grep -qi 'started'; then
           return 0
         fi
@@ -245,7 +223,7 @@ verify_service_listening() {
     return 0
   fi
   if ! wait_for_service_stable "$port" 30; then
-    echo "错误: :${port} 在 30s 内未就绪，请检查服务状态（systemctl/rc-service remnawave-node）" >&2
+    echo "错误: :${port} 在 30s 内未就绪，请检查服务状态（rc-service remnawave-node）" >&2
     return 1
   fi
   if ss -tln 2>/dev/null | grep -q ":${port} "; then
@@ -253,7 +231,7 @@ verify_service_listening() {
     ss -tlnp 2>/dev/null | grep ":${port} " | head -n1 || true
     return 0
   fi
-  echo "错误: :${port} 未监听，请检查服务状态（systemctl/rc-service remnawave-node）" >&2
+  echo "错误: :${port} 未监听，请检查服务状态（rc-service remnawave-node）" >&2
   return 1
 }
 

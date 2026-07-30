@@ -1,32 +1,18 @@
 #!/usr/bin/env bash
-# github.com/12Jack21/remnaplus-alpine-node 升级脚本（保留 node.env 与 rw-core）
+# github.com/12Jack21/remnaplus-alpine-node Alpine/OpenRC transactional upgrade
 set -euo pipefail
 
-VERSION="1.1.0"
+VERSION="1.0.0"
 PREFIX="/usr/local/bin"
 ETC_DIR="/etc/remnanode"
-UNIT="/etc/systemd/system/remnawave-node.service"
 OPENRC_SVC="/etc/init.d/remnawave-node"
 RUN_WRAPPER="${PREFIX}/remnawave-node-run"
 BIN_NAME="remnanode-lite"
 NODE_ENV="${ETC_DIR}/node.env"
 REPO="${RNL_REPO:-12Jack21/remnaplus-alpine-node}"
-if ! command -v curl >/dev/null 2>&1; then
-  echo "缺少命令：curl" >&2
-  exit 1
-fi
-if [ -n "${BASH_SOURCE[0]:-}" ]; then
-  _HELPERS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  # shellcheck source=install-env-helpers.sh
-  source "${_HELPERS_DIR}/install-env-helpers.sh"
-else
-  _HELPERS_TMP="$(mktemp -d)"
-  curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/scripts/install-env-helpers.sh" \
-    -o "${_HELPERS_TMP}/install-env-helpers.sh"
-  # shellcheck source=install-env-helpers.sh
-  source "${_HELPERS_TMP}/install-env-helpers.sh"
-fi
-TAG="$(resolve_install_tag "$REPO" "v${VERSION}")"
+TAG="${RNL_TAG:-v${VERSION}}"
+RNL_RAW_BASE_URL="${RNL_RAW_BASE_URL:-https://raw.githubusercontent.com/${REPO}/${TAG}}"
+RNL_RELEASE_BASE_URL="${RNL_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/${TAG}}"
 UPGRADE_XRAY="${RNL_UPGRADE_XRAY:-0}"
 
 YES=0
@@ -37,17 +23,18 @@ usage() {
   cat <<EOF
 用法：upgrade.sh [--yes] [--dry-run] [--upgrade-xray] [--help] [--version]
 
-Remnawave Node Lite (Go) 升级到 ${TAG}
+RemnaPlus Alpine Node 升级到 ${TAG}
 
 环境变量：
-  RNL_REPO           GitHub 仓库，默认 12Jack21/remnaplus-alpine-node
-  RNL_TAG            Release 标签；未设置时自动取 GitHub 最新 Release（回退 v${VERSION}）
-  RNL_UPGRADE_XRAY   设为 1 时同时运行 install-xray.sh
+  RNL_REPO              GitHub 仓库，默认 12Jack21/remnaplus-alpine-node
+  RNL_TAG               固定 Release 标签，默认 v${VERSION}
+  RNL_RELEASE_BASE_URL  Release 资产基础 URL（测试可覆盖）
+  RNL_UPGRADE_XRAY      设为 1 时同时运行 install-xray.sh
 EOF
 }
 
 version() {
-  echo "remnawave-node-lite upgrade ${VERSION}"
+  echo "remnaplus-alpine-node upgrade ${VERSION}"
 }
 
 while [ $# -gt 0 ]; do
@@ -79,8 +66,22 @@ step() {
   echo "==> $1"
 }
 
-is_alpine() {
-  [ -f /etc/alpine-release ]
+run() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "[dry-run] $*"
+  else
+    "$@"
+  fi
+}
+
+require_alpine() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
+  if [ ! -f /etc/alpine-release ]; then
+    echo "此脚本仅适用于 Alpine Linux（未找到 /etc/alpine-release）。" >&2
+    exit 1
+  fi
 }
 
 require_root() {
@@ -88,7 +89,7 @@ require_root() {
     return 0
   fi
   if [ "$(id -u)" -ne 0 ]; then
-    echo "请使用 root 运行：sudo bash upgrade.sh" >&2
+    echo "请使用 root 运行（Alpine 通常无 sudo）：su - 后执行 bash upgrade.sh" >&2
     exit 1
   fi
 }
@@ -119,6 +120,14 @@ current_version() {
   fi
 }
 
+configured_node_port() {
+  if [ -f "$NODE_ENV" ] && grep -q '^NODE_PORT=' "$NODE_ENV" 2>/dev/null; then
+    grep '^NODE_PORT=' "$NODE_ENV" | head -n 1 | cut -d= -f2-
+  else
+    echo "2222"
+  fi
+}
+
 confirm_upgrade() {
   if [ "$YES" -eq 1 ] || [ "$DRY_RUN" -eq 1 ]; then
     return 0
@@ -132,59 +141,63 @@ confirm_upgrade() {
   esac
 }
 
-backup_binary() {
-  step "备份当前二进制"
-  if [ "$DRY_RUN" -eq 1 ]; then
-    echo "[dry-run] cp ${PREFIX}/${BIN_NAME} ${PREFIX}/${BIN_NAME}.bak"
-    return 0
-  fi
-  if [ -f "${PREFIX}/${BIN_NAME}" ]; then
-    cp -a "${PREFIX}/${BIN_NAME}" "${PREFIX}/${BIN_NAME}.bak.$(date +%Y%m%d%H%M%S)"
-  fi
-}
-
-download_binary() {
+download_candidate() {
   local arch="$1"
-  local url=""
-  if [ -x "${PREFIX}/${BIN_NAME}" ]; then
-    url="$("${PREFIX}/${BIN_NAME}" release-url "${TAG}" "${arch}" 2>/dev/null || true)"
-  fi
-  if [ -z "${url}" ]; then
-    url="https://github.com/${REPO}/releases/download/${TAG}/remnanode-lite_linux_${arch}.tar.gz"
-  fi
-  local tmp
-  tmp="$(mktemp -d)"
+  local tmp="$2"
+  local archive_name="remnanode-lite_linux_${arch}.tar.gz"
+  local url="${RNL_RELEASE_BASE_URL}/${archive_name}"
+  local candidate_dir="${tmp}/candidate"
 
-  step "下载 ${BIN_NAME} ${TAG} (linux/${arch})"
+  step "下载候选版本 ${TAG} (linux/${arch})"
+  mkdir -p "$candidate_dir"
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] curl -fsSL ${url}"
-    echo "[dry-run] install ${PREFIX}/${BIN_NAME}"
-    rm -rf "$tmp"
+    echo "[dry-run] curl -fsSL ${RNL_RELEASE_BASE_URL}/SHA256SUMS"
+    echo "[dry-run] sha256sum -c -"
     return 0
   fi
 
-  curl -fsSL "${url}" -o "${tmp}/archive.tar.gz"
-  tar -xzf "${tmp}/archive.tar.gz" -C "${tmp}"
-  install -m 0755 "${tmp}/${BIN_NAME}" "${PREFIX}/${BIN_NAME}"
-  rm -rf "$tmp"
+  curl -fsSL "$url" -o "${tmp}/${archive_name}"
+  curl -fsSL "${RNL_RELEASE_BASE_URL}/SHA256SUMS" -o "${tmp}/SHA256SUMS"
+  (cd "$tmp" && grep "  ${archive_name}$" SHA256SUMS | sha256sum -c -)
+  tar -xzf "${tmp}/${archive_name}" -C "$candidate_dir"
+  test -x "${candidate_dir}/${BIN_NAME}"
+  "${candidate_dir}/${BIN_NAME}" version
+}
 
-  "${PREFIX}/${BIN_NAME}" version
+refresh_openrc() {
+  step "刷新 OpenRC 服务文件"
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "[dry-run] 更新 ${OPENRC_SVC} 与 ${RUN_WRAPPER}"
+    return 0
+  fi
+
+  if [ -f "${script_dir}/../deploy/remnawave-node-run.sh" ]; then
+    install -m 0755 "${script_dir}/../deploy/remnawave-node-run.sh" "$RUN_WRAPPER"
+  else
+    curl -fsSL "${RNL_RAW_BASE_URL}/deploy/remnawave-node-run.sh" -o "$RUN_WRAPPER"
+    chmod 0755 "$RUN_WRAPPER"
+  fi
+
+  if [ -f "${script_dir}/../deploy/remnawave-node.openrc" ]; then
+    install -m 0755 "${script_dir}/../deploy/remnawave-node.openrc" "$OPENRC_SVC"
+  else
+    curl -fsSL "${RNL_RAW_BASE_URL}/deploy/remnawave-node.openrc" -o "$OPENRC_SVC"
+    chmod 0755 "$OPENRC_SVC"
+  fi
+  rc-update add remnawave-node default 2>/dev/null || true
 }
 
 apply_capabilities() {
-  if ! is_alpine; then
-    return 0
-  fi
   step "重新授予 CAP_NET_ADMIN（Alpine setcap）"
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] setcap cap_net_admin+ep ${PREFIX}/${BIN_NAME}"
     return 0
   fi
-  if command -v setcap >/dev/null 2>&1; then
-    setcap cap_net_admin+ep "${PREFIX}/${BIN_NAME}"
-  else
-    echo "警告：未找到 setcap，请安装 libcap 后手动执行。" >&2
-  fi
+  setcap cap_net_admin+ep "${PREFIX}/${BIN_NAME}"
 }
 
 upgrade_xray() {
@@ -199,132 +212,115 @@ upgrade_xray() {
   if [ -f "${script_dir}/install-xray.sh" ]; then
     bash "${script_dir}/install-xray.sh"
   else
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/${TAG}/scripts/install-xray.sh" | bash
-  fi
-}
-
-refresh_systemd() {
-  if is_alpine; then
-    return 0
-  fi
-
-  step "刷新 systemd unit"
-  local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-  if [ "$DRY_RUN" -eq 1 ]; then
-    echo "[dry-run] 更新 ${UNIT}"
-    return 0
-  fi
-
-  if [ -f "${script_dir}/../deploy/remnawave-node.service" ]; then
-    install -m 0644 "${script_dir}/../deploy/remnawave-node.service" "$UNIT"
-  else
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/${TAG}/deploy/remnawave-node.service" -o "$UNIT"
-  fi
-  systemctl daemon-reload
-}
-
-refresh_openrc() {
-  if ! is_alpine; then
-    return 0
-  fi
-
-  step "刷新 OpenRC 服务文件"
-  local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-  if [ "$DRY_RUN" -eq 1 ]; then
-    echo "[dry-run] 更新 ${OPENRC_SVC} 与 ${RUN_WRAPPER}"
-    return 0
-  fi
-
-  if [ -f "${script_dir}/../deploy/remnawave-node-run.sh" ]; then
-    install -m 0755 "${script_dir}/../deploy/remnawave-node-run.sh" "$RUN_WRAPPER"
-  else
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/${TAG}/deploy/remnawave-node-run.sh" -o "$RUN_WRAPPER"
-    chmod 0755 "$RUN_WRAPPER"
-  fi
-
-  if [ -f "${script_dir}/../deploy/remnawave-node.openrc" ]; then
-    install -m 0755 "${script_dir}/../deploy/remnawave-node.openrc" "$OPENRC_SVC"
-  else
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/${TAG}/deploy/remnawave-node.openrc" -o "$OPENRC_SVC"
-    chmod 0755 "$OPENRC_SVC"
+    curl -fsSL "${RNL_RAW_BASE_URL}/scripts/install-xray.sh" | bash
   fi
 }
 
 restart_service() {
   step "重启 remnawave-node"
+  run rc-service remnawave-node restart
+  if [ "$DRY_RUN" -eq 0 ]; then
+    sleep 1
+    rc-service remnawave-node status || true
+  fi
+}
+
+wait_for_service_stable() {
+  local port="$1"
+  local max_wait="${2:-30}"
+  local i=0
+
   if [ "$DRY_RUN" -eq 1 ]; then
-    if is_alpine; then
-      echo "[dry-run] rc-service remnawave-node restart"
-    else
-      echo "[dry-run] systemctl restart remnawave-node"
-    fi
     return 0
   fi
-  if [ ! -f "$NODE_ENV" ]; then
-    echo "未找到 ${NODE_ENV}，请先运行 install 脚本。" >&2
+
+  while [ "$i" -lt "$max_wait" ]; do
+    if ss -tln 2>/dev/null | grep -q ":${port} " && \
+      rc-service remnawave-node status 2>/dev/null | grep -qi 'started'; then
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+rollback() {
+  local backup="$1"
+  local port="$2"
+  echo "候选版本启动失败，开始 rollback。" >&2
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "[dry-run] install backup ${backup} -> ${PREFIX}/${BIN_NAME}"
+    return 0
+  fi
+  install -m 0755 "$backup" "${PREFIX}/${BIN_NAME}"
+  setcap cap_net_admin+ep "${PREFIX}/${BIN_NAME}" 2>/dev/null || true
+  rc-service remnawave-node restart || true
+  wait_for_service_stable "$port" 30 || true
+}
+
+install_candidate() {
+  local tmp="$1"
+  local backup="${tmp}/rollback/${BIN_NAME}"
+  local port
+  port="$(configured_node_port)"
+
+  step "安装候选二进制"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "[dry-run] candidate install ${PREFIX}/${BIN_NAME}"
+    echo "[dry-run] rollback backup ${backup}"
+    return 0
+  fi
+
+  mkdir -p "${tmp}/rollback"
+  install -m 0755 "${PREFIX}/${BIN_NAME}" "$backup"
+  install -m 0755 "${tmp}/candidate/${BIN_NAME}" "${PREFIX}/${BIN_NAME}"
+
+  apply_capabilities
+  refresh_openrc
+  restart_service
+
+  if ! wait_for_service_stable "$port" 30; then
+    rollback "$backup" "$port"
     exit 1
   fi
 
-  if is_alpine; then
-    rc-service remnawave-node restart
-    sleep 1
-    rc-service remnawave-node status || true
-  else
-    systemctl restart remnawave-node.service
-    sleep 1
-    systemctl --no-pager status remnawave-node.service || true
-  fi
+  install -m 0755 "$backup" "${PREFIX}/${BIN_NAME}.bak.$(date +%Y%m%d%H%M%S)"
 }
 
 main() {
   require_root
+  require_alpine
   require_command curl
+  require_command tar
+  require_command sha256sum
+  require_command setcap
+  require_command rc-service
+  require_command ss
 
-  if is_alpine; then
-    require_command rc-service
-  else
-    require_command systemctl
-  fi
-
-  if [ ! -f "${PREFIX}/${BIN_NAME}" ] && [ "$DRY_RUN" -eq 0 ]; then
-    if is_alpine; then
-      echo "未检测到已安装的 ${BIN_NAME}，请先运行 install-node-alpine.sh。" >&2
-    else
-      echo "未检测到已安装的 ${BIN_NAME}，请先运行 install-node.sh。" >&2
-    fi
+  if [ ! -x "${PREFIX}/${BIN_NAME}" ] && [ "$DRY_RUN" -eq 0 ]; then
+    echo "未检测到已安装的 ${BIN_NAME}，请先运行 install-node-alpine.sh。" >&2
     exit 1
   fi
 
   confirm_upgrade
 
-  local arch
+  local arch tmp
   arch="$(detect_arch)"
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
 
   echo "升级前：$(current_version)"
-  backup_binary
-  download_binary "$arch"
-  apply_capabilities
+  download_candidate "$arch" "$tmp"
+  install_candidate "$tmp"
   upgrade_xray
-  refresh_systemd
-  refresh_openrc
-  restart_service
 
   echo
   echo "升级完成。"
   echo "  当前版本：$(current_version)"
   echo "  配置保留：${NODE_ENV}"
-  if is_alpine; then
-    echo "  日志：    tail -f /var/log/remnanode/openrc.log"
-  else
-    echo "  日志：    journalctl -u remnawave-node -f"
-  fi
-  echo
-  echo "若升级后异常，可恢复备份："
-  echo "  ls ${PREFIX}/${BIN_NAME}.bak.*"
+  echo "  日志：    tail -f /var/log/remnanode/openrc.log"
+  echo "  rollback 备份：ls ${PREFIX}/${BIN_NAME}.bak.*"
 }
 
 main "$@"

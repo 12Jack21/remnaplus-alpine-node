@@ -14,9 +14,9 @@ AGPL source and immutable `linux/amd64` and `linux/arm64` release artifacts.
 - Remnawave node contract `2.8.0`
 - Direct node telemetry, plugins, audit APIs, and Reality SNI health
 
-Debian and other systemd distributions must use the standard Docker
-Remnanode supplied by RemnaPlus. Alpine-native nodes cannot be forwarding
-sources or targets and do not expose HAProxy forwarding telemetry.
+Non-Alpine VPS nodes must use the standard Docker Remnanode supplied by
+RemnaPlus. Alpine-native nodes cannot be forwarding sources or targets and do
+not expose HAProxy forwarding telemetry.
 
 ## Install
 

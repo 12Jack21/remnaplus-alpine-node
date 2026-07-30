@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# github.com/12Jack21/remnaplus-alpine-node 卸载脚本（systemd / Alpine OpenRC）
+# github.com/12Jack21/remnaplus-alpine-node 卸载脚本（Alpine OpenRC）
 set -euo pipefail
 
-VERSION="1.1.0"
+VERSION="1.0.0"
 PREFIX="/usr/local/bin"
 BIN_NAME="remnanode-lite"
 RUN_WRAPPER="${PREFIX}/remnawave-node-run"
-UNIT="/etc/systemd/system/remnawave-node.service"
 OPENRC_SVC="/etc/init.d/remnawave-node"
 ETC_DIR="/etc/remnanode"
 LOG_DIR="/var/log/remnanode"
@@ -40,7 +39,7 @@ Remnawave Node Lite (Go) 卸载 ${VERSION}
   --help, -h          显示帮助
 
 交互模式（默认）会逐项询问是否删除配置、日志、数据、rw-core。
-Alpine 使用 OpenRC；其他发行版使用 systemd。
+仅支持 Alpine OpenRC。
 EOF
 }
 
@@ -154,7 +153,6 @@ require_root() {
 
 installed() {
   [ -x "${PREFIX}/${BIN_NAME}" ] || \
-    [ -f "$UNIT" ] || \
     [ -f "$OPENRC_SVC" ] || \
     [ -d "$ETC_DIR" ]
 }
@@ -162,8 +160,6 @@ installed() {
 detect_install_type() {
   if [ -f "$OPENRC_SVC" ] || is_alpine; then
     echo "openrc"
-  elif [ -f "$UNIT" ]; then
-    echo "systemd"
   else
     echo "unknown"
   fi
@@ -251,20 +247,12 @@ stop_service() {
     run rc-service remnawave-node stop 2>/dev/null || true
     run rc-update del remnawave-node default 2>/dev/null || true
   fi
-  if [ -f "$UNIT" ]; then
-    run systemctl stop remnawave-node.service 2>/dev/null || true
-    run systemctl disable remnawave-node.service 2>/dev/null || true
-  fi
 }
 
 remove_service_files() {
   step "移除服务文件"
   if [ -f "$OPENRC_SVC" ]; then
     run rm -f "$OPENRC_SVC"
-  fi
-  if [ -f "$UNIT" ]; then
-    run rm -f "$UNIT"
-    run systemctl daemon-reload 2>/dev/null || true
   fi
 }
 
@@ -341,11 +329,7 @@ main() {
     [ "$PURGE_XRAY" -eq 0 ] && [ -x "$XRAY_BIN" ] && echo "  rw-core 保留：${XRAY_BIN}"
     echo
     echo "重新安装："
-    if is_alpine; then
-      echo "  curl -fsSL https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v${VERSION}/scripts/install-node-alpine.sh | bash"
-    else
-      echo "  curl -fsSL https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v${VERSION}/scripts/install-node.sh | sudo bash"
-    fi
+    echo "  curl -fsSL https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v${VERSION}/scripts/install-node-alpine.sh | RNL_TAG=v${VERSION} bash"
   fi
 }
 

@@ -2,7 +2,7 @@
 # github.com/12Jack21/remnaplus-alpine-node Alpine Linux 一键安装（OpenRC）
 set -euo pipefail
 
-VERSION="1.1.0"
+VERSION="1.0.0"
 PREFIX="/usr/local/bin"
 ETC_DIR="/etc/remnanode"
 DATA_DIR="/var/lib/remnanode"
@@ -13,6 +13,9 @@ BIN_NAME="remnanode-lite"
 NODE_ENV="${ETC_DIR}/node.env"
 SECRET_FILE="${ETC_DIR}/secret.key"
 REPO="${RNL_REPO:-12Jack21/remnaplus-alpine-node}"
+TAG="${RNL_TAG:-v${VERSION}}"
+RNL_RAW_BASE_URL="${RNL_RAW_BASE_URL:-https://raw.githubusercontent.com/${REPO}/${TAG}}"
+RNL_RELEASE_BASE_URL="${RNL_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/${TAG}}"
 RESTART_CMD="rc-service remnawave-node restart"
 export RESTART_CMD
 
@@ -26,12 +29,14 @@ if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" &
   source "${_HELPERS_DIR}/install-env-helpers.sh"
 else
   _HELPERS_TMP="$(mktemp -d)"
-  curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/scripts/install-env-helpers.sh" \
+  curl -fsSL "${RNL_RAW_BASE_URL}/scripts/install-env-helpers.sh" \
     -o "${_HELPERS_TMP}/install-env-helpers.sh"
   # shellcheck source=install-env-helpers.sh
   source "${_HELPERS_TMP}/install-env-helpers.sh"
 fi
 TAG="$(resolve_install_tag "$REPO" "v${VERSION}")"
+RNL_RAW_BASE_URL="${RNL_RAW_BASE_URL:-https://raw.githubusercontent.com/${REPO}/${TAG}}"
+RNL_RELEASE_BASE_URL="${RNL_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/${TAG}}"
 INSTALL_XRAY="${RNL_INSTALL_XRAY:-1}"
 SKIP_XRAY="${RNL_SKIP_XRAY:-0}"
 SECRET_FILE_ARG=""
@@ -67,7 +72,7 @@ Remnawave Node Lite (Go) ${VERSION} — Alpine / OpenRC 安装 / 升级 / 卸载
 
 一键入口（Alpine 无 sudo，root 下直接 bash）：
   apk add --no-cache curl bash
-  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install-node-alpine.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/${REPO}/v${VERSION}/scripts/install-node-alpine.sh | RNL_TAG=v${VERSION} bash
 EOF
 }
 
@@ -176,7 +181,7 @@ run_sibling_script() {
   if [ -n "$dir" ] && [ -f "${dir}/${name}" ]; then
     bash "${dir}/${name}" "$@"
   else
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/scripts/${name}" | bash -s -- "$@"
+    curl -fsSL "${RNL_RAW_BASE_URL}/scripts/${name}" | bash -s -- "$@"
   fi
 }
 
@@ -265,7 +270,7 @@ require_alpine() {
   fi
   if [ ! -f /etc/alpine-release ]; then
     echo "此脚本仅适用于 Alpine Linux（未找到 /etc/alpine-release）。" >&2
-    echo "Debian/Ubuntu 等请使用：scripts/install-node.sh" >&2
+    echo "其它系统请在 RemnaPlus 中选择标准 Docker 节点。" >&2
     exit 1
   fi
 }
@@ -367,15 +372,16 @@ detect_arch() {
 install_packages() {
   step "安装 Alpine 依赖包"
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "[dry-run] apk add --no-cache bash curl tar ca-certificates libcap openrc iproute2"
+    echo "[dry-run] apk add --no-cache bash curl tar ca-certificates libcap openrc iproute2 nftables vnstat unzip"
     return 0
   fi
-  apk add --no-cache bash curl tar ca-certificates libcap openrc iproute2
+  apk add --no-cache bash curl tar ca-certificates libcap openrc iproute2 nftables vnstat unzip
 }
 
 download_binary() {
   local arch="$1"
-  local url="https://github.com/${REPO}/releases/download/${TAG}/remnanode-lite_linux_${arch}.tar.gz"
+  local archive_name="remnanode-lite_linux_${arch}.tar.gz"
+  local url="${RNL_RELEASE_BASE_URL}/${archive_name}"
   local tmp
   tmp="$(mktemp -d)"
 
@@ -387,8 +393,10 @@ download_binary() {
     return 0
   fi
 
-  curl -fsSL "${url}" -o "${tmp}/archive.tar.gz"
-  tar -xzf "${tmp}/archive.tar.gz" -C "${tmp}"
+  curl -fsSL "${url}" -o "${tmp}/${archive_name}"
+  curl -fsSL "${RNL_RELEASE_BASE_URL}/SHA256SUMS" -o "${tmp}/SHA256SUMS"
+  (cd "$tmp" && grep "  ${archive_name}$" SHA256SUMS | sha256sum -c -)
+  tar -xzf "${tmp}/${archive_name}" -C "${tmp}"
   install -m 0755 "${tmp}/${BIN_NAME}" "${PREFIX}/${BIN_NAME}"
   rm -rf "$tmp"
 
@@ -485,6 +493,44 @@ setup_secret_file() {
   prompt_secret_key
 }
 
+setup_vnstat() {
+  step "配置 vnStat 默认网卡"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "[dry-run] rc-update add vnstat default"
+    echo "[dry-run] rc-service vnstat restart"
+    echo "[dry-run] ip route show default"
+    echo "[dry-run] vnstat --add -i eth0"
+    return 0
+  fi
+
+  rc-update add vnstat default
+
+  local iface=""
+  iface="$(ip route show default 2>/dev/null | awk '($1 == "default") {for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}')"
+  if [ -z "$iface" ]; then
+    echo "无法检测默认路由网卡，vnStat 无法配置。" >&2
+    exit 1
+  fi
+
+  vnstat --add -i "$iface" 2>/dev/null || true
+  rc-service vnstat restart
+
+  local today i
+  today="$(date +%Y-%m-%d)"
+  i=0
+  while [ "$i" -lt 30 ]; do
+    if vnstat --json d 1 2>/dev/null | grep -q "\"date\".*${today}"; then
+      echo "OK: vnStat 正在跟踪 ${iface}"
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+
+  echo "vnStat 数据未在 30s 内更新，请检查 vnstat 服务和接口 ${iface}。" >&2
+  exit 1
+}
+
 install_openrc() {
   step "安装 OpenRC 服务"
   local dir
@@ -498,14 +544,14 @@ install_openrc() {
   if [ -n "$dir" ] && [ -f "${dir}/../deploy/remnawave-node-run.sh" ]; then
     install -m 0755 "${dir}/../deploy/remnawave-node-run.sh" "$RUN_WRAPPER"
   else
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/${TAG}/deploy/remnawave-node-run.sh" -o "$RUN_WRAPPER"
+    curl -fsSL "${RNL_RAW_BASE_URL}/deploy/remnawave-node-run.sh" -o "$RUN_WRAPPER"
     chmod 0755 "$RUN_WRAPPER"
   fi
 
   if [ -n "$dir" ] && [ -f "${dir}/../deploy/remnawave-node.openrc" ]; then
     install -m 0755 "${dir}/../deploy/remnawave-node.openrc" "$OPENRC_SVC"
   else
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/${TAG}/deploy/remnawave-node.openrc" -o "$OPENRC_SVC"
+    curl -fsSL "${RNL_RAW_BASE_URL}/deploy/remnawave-node.openrc" -o "$OPENRC_SVC"
     chmod 0755 "$OPENRC_SVC"
   fi
 
@@ -586,6 +632,7 @@ do_install() {
   apply_capabilities
   install_xray
   install_geo_extra_files
+  setup_vnstat
   prompt_node_port
   setup_env_file
   ensure_internal_socket_in_env
