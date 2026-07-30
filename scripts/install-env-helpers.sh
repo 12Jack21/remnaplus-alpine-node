@@ -203,6 +203,9 @@ wait_for_service_stable() {
 
   while [ "$i" -lt "$max_wait" ]; do
     if ss -tln 2>/dev/null | grep -q ":${port} "; then
+      if [ "${RNL_OPENRC_DIRECT_START:-0}" = "1" ]; then
+        return 0
+      fi
       if command -v rc-service >/dev/null 2>&1; then
         if rc-service remnawave-node status 2>/dev/null | grep -qi 'started'; then
           return 0

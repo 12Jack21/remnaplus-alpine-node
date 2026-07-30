@@ -503,7 +503,12 @@ setup_vnstat() {
     return 0
   fi
 
-  rc-update add vnstat default
+  local service_name="vnstat"
+  if [ ! -e /etc/init.d/vnstat ] && [ -e /etc/init.d/vnstatd ]; then
+    service_name="vnstatd"
+  fi
+
+  rc-update add "$service_name" default
 
   local iface=""
   iface="$(ip route show default 2>/dev/null | awk '($1 == "default") {for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}')"
@@ -512,14 +517,24 @@ setup_vnstat() {
     exit 1
   fi
 
+  rc-service "$service_name" start 2>/dev/null || rc-service "$service_name" restart 2>/dev/null || true
+  sleep 1
+  if [ ! -f /var/lib/vnstat/vnstat.db ] && command -v vnstatd >/dev/null 2>&1; then
+    vnstatd --initdb --alwaysadd 2>/dev/null || true
+  fi
   vnstat --add -i "$iface" 2>/dev/null || true
-  rc-service vnstat restart
+  rc-service "$service_name" restart 2>/dev/null || rc-service "$service_name" start 2>/dev/null || true
 
-  local today i
-  today="$(date +%Y-%m-%d)"
+  local year month day i json
+  year="$(date +%Y)"
+  month="$(date +%m | sed 's/^0//')"
+  day="$(date +%d | sed 's/^0//')"
   i=0
   while [ "$i" -lt 30 ]; do
-    if vnstat --json d 1 2>/dev/null | grep -q "\"date\".*${today}"; then
+    json="$(vnstat --json d 1 2>/dev/null || true)"
+    if printf '%s' "$json" | grep -q "\"year\":${year}" && \
+      printf '%s' "$json" | grep -q "\"month\":${month}" && \
+      printf '%s' "$json" | grep -q "\"day\":${day}"; then
       echo "OK: vnStat 正在跟踪 ${iface}"
       return 0
     fi
@@ -589,7 +604,18 @@ start_service() {
     return 0
   fi
 
-  rc-service remnawave-node restart
+  if [ "${RNL_OPENRC_DIRECT_START:-0}" = "1" ]; then
+    if command -v pidof >/dev/null 2>&1; then
+      for pid in $(pidof "$BIN_NAME" 2>/dev/null || true); do
+        kill "$pid" 2>/dev/null || true
+      done
+      sleep 1
+    fi
+    nohup "$RUN_WRAPPER" >>"${LOG_DIR}/openrc.log" 2>>"${LOG_DIR}/openrc.err.log" &
+    return 0
+  fi
+
+  rc-service remnawave-node restart || rc-service remnawave-node start || true
   sleep 1
   rc-service remnawave-node status || true
 }

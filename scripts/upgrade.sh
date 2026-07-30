@@ -218,6 +218,20 @@ upgrade_xray() {
 
 restart_service() {
   step "重启 remnawave-node"
+  if [ "${RNL_OPENRC_DIRECT_START:-0}" = "1" ]; then
+    if command -v pidof >/dev/null 2>&1; then
+      for pid in $(pidof "$BIN_NAME" 2>/dev/null || true); do
+        kill "$pid" 2>/dev/null || true
+      done
+      sleep 1
+    fi
+    if [ "$DRY_RUN" -eq 0 ]; then
+      nohup "$RUN_WRAPPER" >>/var/log/remnanode/openrc.log 2>>/var/log/remnanode/openrc.err.log &
+    else
+      echo "[dry-run] nohup ${RUN_WRAPPER}"
+    fi
+    return 0
+  fi
   run rc-service remnawave-node restart
   if [ "$DRY_RUN" -eq 0 ]; then
     sleep 1
@@ -235,9 +249,11 @@ wait_for_service_stable() {
   fi
 
   while [ "$i" -lt "$max_wait" ]; do
-    if ss -tln 2>/dev/null | grep -q ":${port} " && \
-      rc-service remnawave-node status 2>/dev/null | grep -qi 'started'; then
-      return 0
+    if ss -tln 2>/dev/null | grep -q ":${port} "; then
+      if [ "${RNL_OPENRC_DIRECT_START:-0}" = "1" ] || \
+        rc-service remnawave-node status 2>/dev/null | grep -qi 'started'; then
+        return 0
+      fi
     fi
     sleep 1
     i=$((i + 1))
@@ -255,7 +271,7 @@ rollback() {
   fi
   install -m 0755 "$backup" "${PREFIX}/${BIN_NAME}"
   setcap cap_net_admin+ep "${PREFIX}/${BIN_NAME}" 2>/dev/null || true
-  rc-service remnawave-node restart || true
+  restart_service || true
   wait_for_service_stable "$port" 30 || true
 }
 
@@ -308,7 +324,7 @@ main() {
   local arch tmp
   arch="$(detect_arch)"
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  trap 'rm -rf "${tmp:-}"' EXIT
 
   echo "升级前：$(current_version)"
   download_candidate "$arch" "$tmp"

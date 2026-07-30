@@ -21,3 +21,12 @@ jobs:
 
       - name: go build
         run: go build -o /dev/null ./cmd/remnanode-lite
+
+      - name: shell contracts
+        run: |
+          bash -n scripts/*.sh deploy/remnawave-node-run.sh deploy/remnawave-node.openrc
+          bash scripts/install-node-alpine.test.sh
+          bash scripts/release-assets.test.sh
+
+      - name: packaged Alpine gate
+        run: bash scripts/test-alpine.sh
