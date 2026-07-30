@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/12Jack21/remnaplus-alpine-node/internal/system"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/tcpstats"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/xtls"
 )
 
@@ -48,7 +49,8 @@ type systemStatsResponse struct {
 		} `json:"torrentBlocker"`
 	} `json:"plugins"`
 	System struct {
-		Stats system.Stats `json:"stats"`
+		ListeningPorts []tcpstats.ListeningPort `json:"listeningPorts"`
+		Stats          system.Stats             `json:"stats"`
 	} `json:"system"`
 }
 
@@ -74,8 +76,23 @@ func (s *Service) HandleGetSystemStats(w http.ResponseWriter, write writeJSONFn)
 		resp.Plugins.TorrentBlocker.ReportsCount = s.reportsCounter.ReportsCount()
 	}
 	resp.System.Stats = system.GetStats()
+	resp.System.ListeningPorts = tcpstats.GetListeningPorts(context.Background())
 
 	write(w, http.StatusOK, envelope[systemStatsResponse]{Response: resp})
+}
+
+func (s *Service) HandleGetTCPConnections(w http.ResponseWriter, write writeJSONFn) {
+	connections := tcpstats.GetPeerConnections()
+	write(w, http.StatusOK, envelope[struct {
+		CollectedAt string                    `json:"collectedAt"`
+		Connections []tcpstats.PeerConnection `json:"connections"`
+	}]{Response: struct {
+		CollectedAt string                    `json:"collectedAt"`
+		Connections []tcpstats.PeerConnection `json:"connections"`
+	}{
+		CollectedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Connections: connections,
+	}})
 }
 
 func (s *Service) HandleGetUserOnlineStatus(w http.ResponseWriter, r *http.Request, write writeJSONFn) {

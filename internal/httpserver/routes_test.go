@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/12Jack21/remnaplus-alpine-node/internal/stats"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/xtls"
@@ -77,5 +78,34 @@ func TestHandleNodeRoutesUnknownPath(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestHandleNodeRoutesTCPConnections(t *testing.T) {
+	t.Parallel()
+
+	server := &Server{statsService: stats.NewService(failingUsersStatsProvider{}, nil)}
+	req := httptest.NewRequest(http.MethodGet, "/node/stats/get-tcp-connections", nil)
+	rec := httptest.NewRecorder()
+
+	server.handleNodeRoutes(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body struct {
+		Response struct {
+			CollectedAt string `json:"collectedAt"`
+			Connections []any  `json:"connections"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, body.Response.CollectedAt); err != nil {
+		t.Fatalf("collectedAt = %q: %v", body.Response.CollectedAt, err)
+	}
+	if body.Response.Connections == nil {
+		t.Fatal("connections must be an array, not null")
 	}
 }

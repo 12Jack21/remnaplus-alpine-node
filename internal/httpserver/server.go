@@ -94,6 +94,8 @@ func (s *Server) handleNodeRoutes(w http.ResponseWriter, r *http.Request) {
 		s.statsService.HandleGetUserOnlineStatus(w, r, write)
 	case r.Method == http.MethodGet && path == "/node/stats/get-system-stats":
 		s.statsService.HandleGetSystemStats(w, write)
+	case r.Method == http.MethodGet && path == "/node/stats/get-tcp-connections":
+		s.statsService.HandleGetTCPConnections(w, write)
 	case r.Method == http.MethodPost && path == "/node/stats/get-users-stats":
 		s.statsService.HandleGetUsersStats(w, r, write)
 	case r.Method == http.MethodPost && path == "/node/stats/get-inbound-stats":

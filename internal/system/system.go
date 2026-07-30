@@ -2,12 +2,16 @@ package system
 
 import (
 	"bufio"
+	"context"
 	"net"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/12Jack21/remnaplus-alpine-node/internal/tcpstats"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/vnstat"
 )
 
 var processStartedAt = time.Now()
@@ -34,11 +38,15 @@ type Info struct {
 }
 
 type Stats struct {
-	MemoryFree uint64            `json:"memoryFree"`
-	MemoryUsed uint64            `json:"memoryUsed"`
-	Uptime     float64           `json:"uptime"`
-	LoadAvg    []float64         `json:"loadAvg"`
-	Interface  *NetworkInterface `json:"interface"`
+	MemoryFree       uint64              `json:"memoryFree"`
+	MemoryUsed       uint64              `json:"memoryUsed"`
+	Uptime           float64             `json:"uptime"`
+	LoadAvg          []float64           `json:"loadAvg"`
+	Interface        *NetworkInterface   `json:"interface"`
+	TCP              tcpstats.Stats      `json:"tcp"`
+	VnstatDaily      []vnstat.DailyEntry `json:"vnstatDaily"`
+	VnstatError      *vnstat.ErrorCode   `json:"vnstatError"`
+	VnstatTotalBytes *float64            `json:"vnstatTotalBytes"`
 }
 
 type Snapshot struct {
@@ -63,17 +71,38 @@ func GetInfo() Info {
 }
 
 func GetStats() Stats {
+	return GetStatsContext(context.Background())
+}
+
+func GetStatsContext(ctx context.Context) Stats {
 	free, total := memoryFreeAndTotal()
 	used := uint64(0)
 	if total > free {
 		used = total - free
 	}
+	interfaceStats := defaultMonitor.GetDefaultInterface()
+	defaultInterface := resolveDefaultInterface()
+	if interfaceStats != nil && interfaceStats.Interface != "" {
+		defaultInterface = interfaceStats.Interface
+	}
+	vnstatResult := vnstat.DefaultSnapshot(ctx, defaultInterface)
+	var daily []vnstat.DailyEntry
+	var totalBytes *float64
+	if vnstatResult.Snapshot != nil {
+		daily = vnstatResult.Snapshot.Daily
+		value := vnstatResult.Snapshot.TotalBytes
+		totalBytes = &value
+	}
 	return Stats{
-		MemoryFree: free,
-		MemoryUsed: used,
-		Uptime:     uptime(),
-		LoadAvg:    loadAvg(),
-		Interface:  defaultMonitor.GetDefaultInterface(),
+		MemoryFree:       free,
+		MemoryUsed:       used,
+		Uptime:           uptime(),
+		LoadAvg:          loadAvg(),
+		Interface:        interfaceStats,
+		TCP:              tcpstats.GetStats(),
+		VnstatDaily:      daily,
+		VnstatError:      vnstatResult.Error,
+		VnstatTotalBytes: totalBytes,
 	}
 }
 

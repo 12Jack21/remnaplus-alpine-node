@@ -22,6 +22,7 @@ var responseShapeTests = map[string]func(t *testing.T){
 	"/node/xray/stop":                       testXrayStopResponseShape,
 	"/node/xray/healthcheck":                testXrayHealthcheckResponseShape,
 	"/node/stats/get-user-online-status":    testGetUserOnlineStatusResponseShape,
+	"/node/stats/get-tcp-connections":       testGetTCPConnectionsResponseShape,
 	"/node/stats/get-system-stats":          testGetSystemStatsResponseShape,
 	"/node/stats/get-users-stats":           testGetUsersStatsResponseShape,
 	"/node/stats/get-inbound-stats":         testGetInboundStatsResponseShape,
@@ -127,8 +128,23 @@ func testGetSystemStatsResponseShape(t *testing.T) {
 	service.HandleGetSystemStats(rec, writeTestJSON)
 	raw := rec.Body.Bytes()
 	assertJSONPath(t, raw, "response.plugins.torrentBlocker.reportsCount")
+	assertJSONPath(t, raw, "response.system.listeningPorts")
 	assertJSONPath(t, raw, "response.system.stats.memoryFree")
 	assertJSONPath(t, raw, "response.system.stats.loadAvg")
+	assertJSONPath(t, raw, "response.system.stats.tcp.established")
+	assertJSONPath(t, raw, "response.system.stats.tcp.total")
+	assertJSONPath(t, raw, "response.system.stats.vnstatDaily")
+	assertJSONPath(t, raw, "response.system.stats.vnstatError")
+	assertJSONPath(t, raw, "response.system.stats.vnstatTotalBytes")
+}
+
+func testGetTCPConnectionsResponseShape(t *testing.T) {
+	service := statsService(t)
+	rec := httptest.NewRecorder()
+	service.HandleGetTCPConnections(rec, writeTestJSON)
+	raw := rec.Body.Bytes()
+	assertJSONPath(t, raw, "response.collectedAt")
+	assertJSONPathArray(t, raw, "response.connections")
 }
 
 func testGetUsersStatsResponseShape(t *testing.T) {
