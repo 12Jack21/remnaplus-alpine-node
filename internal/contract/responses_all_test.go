@@ -56,8 +56,8 @@ var responseShapeTests = map[string]func(t *testing.T){
 	"/node/plugin/nftables/recreate-tables":     testPluginRecreateTablesResponseShape,
 }
 
-func TestOfficialResponseShapes(t *testing.T) {
-	for _, route := range officialRoutes {
+func TestApprovedResponseShapes(t *testing.T) {
+	for _, route := range approvedRoutes {
 		route := route
 		t.Run(route, func(t *testing.T) {
 			t.Parallel()

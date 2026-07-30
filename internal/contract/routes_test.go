@@ -4,9 +4,9 @@ import (
 	"testing"
 )
 
-// Official @remnawave/node REST paths (from libs/contract/api/routes.ts).
-// Baseline: upstream v2.8.0 (2026-06-29) — contract-sync CI tracks main weekly.
-var officialRoutes = []string{
+// approvedRoutes is the RemnaPlus 2.8.0 node contract plus native extensions,
+// excluding HAProxy forwarding telemetry by capability policy.
+var approvedRoutes = []string{
 	"/node/xray/start",
 	"/node/xray/stop",
 	"/node/xray/healthcheck",
@@ -41,8 +41,8 @@ var officialRoutes = []string{
 	"/node/plugin/nftables/recreate-tables",
 }
 
-// liteGoImplemented marks routes wired in this repository.
-var liteGoImplemented = map[string]bool{
+// implementedRoutes marks routes wired in this repository.
+var implementedRoutes = map[string]bool{
 	"/node/xray/start":                          true,
 	"/node/xray/stop":                           true,
 	"/node/xray/healthcheck":                    true,
@@ -77,11 +77,11 @@ var liteGoImplemented = map[string]bool{
 	"/node/plugin/nftables/recreate-tables":     true,
 }
 
-func TestOfficialRoutesCoverage(t *testing.T) {
+func TestApprovedRoutesCoverage(t *testing.T) {
 	t.Parallel()
 
-	for _, route := range officialRoutes {
-		if !liteGoImplemented[route] {
+	for _, route := range approvedRoutes {
+		if !implementedRoutes[route] {
 			t.Fatalf("route %s not marked implemented in lite-go", route)
 		}
 	}
