@@ -60,4 +60,34 @@ distribution_files=(
 )
 assert_absent 'systemd|systemctl|journalctl|apt( |-)install|/etc/debian|install-node\.sh|/main/' "${distribution_files[@]}"
 
+secret_tmp="$(mktemp -d)"
+trap 'rm -rf "$secret_tmp"' EXIT
+secret_output="$({
+  export RNL_LANG=en
+  export NODE_ENV="${secret_tmp}/node.env"
+  export SECRET_FILE="${secret_tmp}/secret.key"
+  export SECRET_KEY="dummy-secret-key"
+  export SECRET_FILE_ARG=""
+  export YES=1
+  export DRY_RUN=0
+  export RESTART_CMD="rc-service remnawave-node restart"
+  : >"$NODE_ENV"
+  # shellcheck source=install-node-alpine.messages.sh
+  source "${repo_root}/scripts/install-node-alpine.messages.sh"
+  # shellcheck source=install-env-helpers.sh
+  source "${repo_root}/scripts/install-env-helpers.sh"
+  prompt_secret_key
+  SECRET_KEY="replacement-that-must-not-overwrite"
+  prompt_secret_key
+} 2>&1)"
+grep -q '^SECRET_KEY="dummy-secret-key"$' "${secret_tmp}/node.env"
+[ "$(grep -c '^SECRET_KEY=' "${secret_tmp}/node.env")" -eq 1 ]
+! grep -q 'replacement-that-must-not-overwrite' "${secret_tmp}/node.env"
+! grep -Eiq 'paste|粘贴' <<<"$secret_output"
+if stat -f '%Lp' "${secret_tmp}/node.env" >/dev/null 2>&1; then
+  [ "$(stat -f '%Lp' "${secret_tmp}/node.env")" = "600" ]
+else
+  [ "$(stat -c '%a' "${secret_tmp}/node.env")" = "600" ]
+fi
+
 echo "Alpine installer contract passed"
