@@ -2,7 +2,7 @@
 # github.com/12Jack21/remnaplus-alpine-node Alpine/OpenRC transactional upgrade
 set -euo pipefail
 
-VERSION="1.0.1"
+VERSION="1.0.2"
 PREFIX="/usr/local/bin"
 ETC_DIR="/etc/remnanode"
 OPENRC_SVC="/etc/init.d/remnawave-node"
