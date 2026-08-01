@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 installer="${repo_root}/scripts/install-node-alpine.sh"
+installer_en="${repo_root}/scripts/install-node-alpine-en.sh"
 upgrade="${repo_root}/scripts/upgrade.sh"
 
 assert_contains() {
@@ -24,6 +25,7 @@ assert_absent() {
 }
 
 assert_contains "$installer" 'VERSION="1\.0\.1"'
+assert_contains "$installer_en" 'VERSION="1\.0\.1"'
 assert_contains "$installer" '/etc/alpine-release'
 assert_contains "$installer" 'RNL_RELEASE_BASE_URL'
 assert_contains "$installer" 'SHA256SUMS'
@@ -45,6 +47,8 @@ assert_contains "$upgrade" 'wait_for_service_stable'
 
 distribution_files=(
   "${repo_root}/scripts/install-node-alpine.sh"
+  "${repo_root}/scripts/install-node-alpine-en.sh"
+  "${repo_root}/scripts/install-node-alpine.messages.sh"
   "${repo_root}/scripts/install-xray.sh"
   "${repo_root}/scripts/upgrade.sh"
   "${repo_root}/scripts/uninstall.sh"

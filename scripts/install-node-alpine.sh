@@ -3,6 +3,8 @@
 set -euo pipefail
 
 VERSION="1.0.1"
+RNL_LANG="${RNL_LANG:-zh}"
+export RNL_LANG
 PREFIX="/usr/local/bin"
 ETC_DIR="/etc/remnanode"
 DATA_DIR="/var/lib/remnanode"
@@ -19,11 +21,34 @@ RNL_RELEASE_BASE_URL="${RNL_RELEASE_BASE_URL:-https://github.com/${REPO}/release
 RESTART_CMD="rc-service remnawave-node restart"
 export RESTART_CMD
 
+case "$RNL_LANG" in
+  zh|en) ;;
+  *) echo "Unsupported installer language: ${RNL_LANG}" >&2; exit 64 ;;
+esac
+
 if ! command -v curl >/dev/null 2>&1; then
-  echo "缺少命令：curl（Alpine: apk add --no-cache curl bash）" >&2
+  if [ "$RNL_LANG" = "en" ]; then
+    echo "Missing command: curl (Alpine: apk add --no-cache curl bash)" >&2
+  else
+    echo "缺少命令：curl（Alpine: apk add --no-cache curl bash）" >&2
+  fi
   exit 1
 fi
-if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-env-helpers.sh" ]; then
+_INSTALLER_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  _INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+fi
+if [ -n "$_INSTALLER_DIR" ] && [ -f "${_INSTALLER_DIR}/install-node-alpine.messages.sh" ]; then
+  # shellcheck source=install-node-alpine.messages.sh
+  source "${_INSTALLER_DIR}/install-node-alpine.messages.sh"
+else
+  _MESSAGES_TMP="$(mktemp -d)"
+  curl -fsSL "${RNL_RAW_BASE_URL}/scripts/install-node-alpine.messages.sh" \
+    -o "${_MESSAGES_TMP}/install-node-alpine.messages.sh"
+  # shellcheck source=install-node-alpine.messages.sh
+  source "${_MESSAGES_TMP}/install-node-alpine.messages.sh"
+fi
+if [ -n "$_INSTALLER_DIR" ] && [ -f "${_INSTALLER_DIR}/install-env-helpers.sh" ]; then
   _HELPERS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   # shellcheck source=install-env-helpers.sh
   source "${_HELPERS_DIR}/install-env-helpers.sh"
@@ -47,33 +72,10 @@ LOW_MEMORY=0
 PORT_EXPLICIT=0
 ACTION=""
 UNINSTALL_MODE=""
-STAGE="初始化"
+STAGE="initialization"
 
 usage() {
-  cat <<EOF
-用法：install-node-alpine.sh [选项]
-
-Remnawave Node Lite (Go) ${VERSION} — Alpine / OpenRC 安装 / 升级 / 卸载
-
-无参数时在终端显示菜单；非交互请指定动作：
-  --install           安装（或覆盖升级二进制，保留 node.env）
-  --upgrade           仅升级二进制
-  --uninstall         卸载
-
-其它选项：
-  --yes, -y           跳过确认
-  --dry-run           预览
-  --skip-xray         跳过 rw-core
-  --low-memory        低内存模式
-  --port PORT         监听端口（默认 2222）
-  --secret-file PATH  从文件导入 Secret Key
-  --help, -h          帮助
-  --version           版本
-
-一键入口（Alpine 无 sudo，root 下直接 bash）：
-  apk add --no-cache curl bash
-  curl -fsSL https://raw.githubusercontent.com/${REPO}/v${VERSION}/scripts/install-node-alpine.sh | RNL_TAG=v${VERSION} bash
-EOF
+  rnl_print_usage "$VERSION" "$REPO"
 }
 
 version() {
@@ -93,7 +95,7 @@ while [ $# -gt 0 ]; do
     --port)
       NODE_PORT="${2:-}"
       if [ -z "$NODE_PORT" ]; then
-        echo "--port 需要端口号" >&2
+        rnl_msg argument_requires_value "--port" port >&2
         exit 1
       fi
       PORT_EXPLICIT=1
@@ -103,7 +105,7 @@ while [ $# -gt 0 ]; do
     --secret-file)
       SECRET_FILE_ARG="${2:-}"
       if [ -z "$SECRET_FILE_ARG" ]; then
-        echo "--secret-file 需要文件路径" >&2
+        rnl_msg argument_requires_value "--secret-file" file >&2
         exit 1
       fi
       shift 2
@@ -112,7 +114,7 @@ while [ $# -gt 0 ]; do
     --help|-h) usage; exit 0 ;;
     --version) version; exit 0 ;;
     *)
-      echo "未知参数：$1" >&2
+      rnl_msg unknown_argument "$1" >&2
       usage
       exit 1
       ;;
@@ -121,16 +123,16 @@ while [ $# -gt 0 ]; do
 done
 
 on_error() {
-  echo "安装失败：${STAGE}" >&2
-  echo "失败命令：${BASH_COMMAND}" >&2
+  rnl_msg install_failed "$STAGE" >&2
+  rnl_msg failed_command "$BASH_COMMAND" >&2
   exit $?
 }
 
 trap on_error ERR
 
 step() {
-  STAGE="$1"
-  echo "==> $1"
+  STAGE="$(rnl_msg "$@")"
+  echo "==> $STAGE"
 }
 
 run() {
@@ -186,16 +188,12 @@ run_sibling_script() {
 }
 
 show_menu() {
-  echo
-  echo "Remnawave Node Lite ${VERSION} (contract 2.8.0) — Alpine"
-  echo "  1) 安装"
-  echo "  2) 升级"
-  echo "  3) 卸载"
-  echo "  4) 退出"
-  echo
+  rnl_print_main_menu "$VERSION"
   local choice=""
-  read_tty choice "请选择 [1-4]: " || {
-    echo "无法读取输入。非交互请用: --install | --upgrade | --uninstall" >&2
+  local prompt="Select [1-4]: "
+  [ "$RNL_LANG" = "zh" ] && prompt="请选择 [1-4]: "
+  read_tty choice "$prompt" || {
+    if [ "$RNL_LANG" = "en" ]; then echo "Cannot read input; use --install, --upgrade, or --uninstall." >&2; else echo "无法读取输入。非交互请用: --install | --upgrade | --uninstall" >&2; fi
     exit 1
   }
   case "$choice" in
@@ -204,26 +202,24 @@ show_menu() {
     3) ACTION=uninstall ;;
     4) exit 0 ;;
     *)
-      echo "无效选择：${choice}" >&2
+      if [ "$RNL_LANG" = "en" ]; then echo "Invalid selection: ${choice}" >&2; else echo "无效选择：${choice}" >&2; fi
       exit 1
       ;;
   esac
 }
 
 show_uninstall_menu() {
-  echo
-  echo "卸载选项："
-  echo "  1) 仅卸服务（保留 node.env / rw-core）"
-  echo "  2) 完全卸载（配置+日志+rw-core 全删）"
-  echo "  3) 返回"
+  rnl_print_uninstall_menu
   local choice=""
-  read_tty choice "请选择 [1-3]: " || exit 1
+  local prompt="Select [1-3]: "
+  [ "$RNL_LANG" = "zh" ] && prompt="请选择 [1-3]: "
+  read_tty choice "$prompt" || exit 1
   case "$choice" in
     1) UNINSTALL_MODE=keep ;;
     2) UNINSTALL_MODE=full ;;
     3) exit 0 ;;
     *)
-      echo "无效选择" >&2
+      if [ "$RNL_LANG" = "en" ]; then echo "Invalid selection" >&2; else echo "无效选择" >&2; fi
       exit 1
       ;;
   esac
@@ -245,7 +241,7 @@ dispatch_action() {
       ;;
     menu) show_menu; dispatch_action ;;
     *)
-      echo "未知动作：${ACTION}" >&2
+      if [ "$RNL_LANG" = "en" ]; then echo "Unknown action: ${ACTION}" >&2; else echo "未知动作：${ACTION}" >&2; fi
       usage
       exit 1
       ;;
@@ -257,7 +253,7 @@ require_root() {
     return 0
   fi
   if [ "$(id -u)" -ne 0 ]; then
-    echo "请使用 root 运行（Alpine 通常无 sudo）：" >&2
+    rnl_msg root_required >&2
     echo "  su -" >&2
     echo "  curl -fsSL .../install-node-alpine.sh | bash" >&2
     exit 1
@@ -269,8 +265,8 @@ require_alpine() {
     return 0
   fi
   if [ ! -f /etc/alpine-release ]; then
-    echo "此脚本仅适用于 Alpine Linux（未找到 /etc/alpine-release）。" >&2
-    echo "其它系统请在 RemnaPlus 中选择标准 Docker 节点。" >&2
+    rnl_msg alpine_required >&2
+    rnl_msg standard_node_hint >&2
     exit 1
   fi
 }
@@ -278,7 +274,7 @@ require_alpine() {
 validate_port() {
   local port="$1"
   if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-    echo "无效端口：${port}（有效范围 1-65535）" >&2
+    rnl_msg invalid_port "$port" >&2
     exit 1
   fi
 }
@@ -301,7 +297,9 @@ prompt_node_port() {
   fi
   echo
   local input=""
-  read_tty input "NODE 监听端口（Panel 连接用，默认 2222）: " || input=""
+  local prompt="Node listener port (private Panel connection port, default 2222): "
+  [ "$RNL_LANG" = "zh" ] && prompt="NODE 监听端口（Panel 连接用，默认 2222）: "
+  read_tty input "$prompt" || input=""
   NODE_PORT="${input:-2222}"
   validate_port "$NODE_PORT"
 }
@@ -313,14 +311,12 @@ confirm_install() {
   if [ ! -x "${PREFIX}/${BIN_NAME}" ] && [ ! -f "$NODE_ENV" ]; then
     return 0
   fi
-  echo
-  echo "检测到本机已安装 remnawave-node-lite。"
-  echo "  1) 升级（保留 ${NODE_ENV}）"
-  echo "  2) 全新安装（删除配置/日志后重装）"
-  echo "  3) 取消"
+  rnl_print_existing_install_menu "$NODE_ENV"
   local choice=""
-  read_tty choice "请选择 [1-3]: " || {
-    echo "非交互环境请用: --yes 或 --install" >&2
+  local prompt="Select [1-3]: "
+  [ "$RNL_LANG" = "zh" ] && prompt="请选择 [1-3]: "
+  read_tty choice "$prompt" || {
+    if [ "$RNL_LANG" = "en" ]; then echo "In non-interactive mode, use --yes or --install." >&2; else echo "非交互环境请用: --yes 或 --install" >&2; fi
     exit 1
   }
   case "$choice" in
@@ -333,11 +329,11 @@ confirm_install() {
         rm -rf "$ETC_DIR" "$LOG_DIR" "$DATA_DIR"
         cleanup_runtime
         rm -f "${ETC_DIR}.bak."* 2>/dev/null || true
-        echo "已清除旧配置，开始全新安装。"
+        if [ "$RNL_LANG" = "en" ]; then echo "Removed the old configuration; starting a clean install."; else echo "已清除旧配置，开始全新安装。"; fi
       fi
       ;;
     *)
-      echo "已取消。"
+      if [ "$RNL_LANG" = "en" ]; then echo "Cancelled."; else echo "已取消。"; fi
       exit 0
       ;;
   esac
@@ -363,14 +359,14 @@ detect_arch() {
     x86_64|amd64) echo "amd64" ;;
     aarch64|arm64) echo "arm64" ;;
     *)
-      echo "不支持的架构：$(uname -m)" >&2
+      rnl_msg unsupported_arch "$(uname -m)" >&2
       exit 1
       ;;
   esac
 }
 
 install_packages() {
-  step "安装 Alpine 依赖包"
+  step packages
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] apk add --no-cache bash curl tar ca-certificates libcap openrc iproute2 nftables vnstat unzip"
     return 0
@@ -385,7 +381,7 @@ download_binary() {
   local tmp
   tmp="$(mktemp -d)"
 
-  step "下载 ${BIN_NAME} ${TAG} (linux/${arch})"
+  step binary_download "$BIN_NAME" "$TAG" "$arch"
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] curl -fsSL ${url}"
     echo "[dry-run] install ${PREFIX}/${BIN_NAME}"
@@ -404,7 +400,7 @@ download_binary() {
 }
 
 apply_capabilities() {
-  step "授予 CAP_NET_ADMIN（nftables / ss -K）"
+  step capabilities
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] setcap cap_net_admin+ep ${PREFIX}/${BIN_NAME}"
     return 0
@@ -418,28 +414,34 @@ apply_capabilities() {
 
 install_xray() {
   if [ "$SKIP_XRAY" -eq 1 ] || [ "$INSTALL_XRAY" -eq 0 ]; then
-    echo "跳过 rw-core 安装。"
+    rnl_msg skip_xray
     return 0
   fi
 
-  step "安装 rw-core (Xray core)"
+  step xray_install
   local dir
   dir="$(script_dir)"
   if [ -n "$dir" ] && [ -f "${dir}/install-xray.sh" ]; then
     bash "${dir}/install-xray.sh"
   else
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/${TAG}/scripts/install-xray.sh" | bash
+    local xray_tmp
+    xray_tmp="$(mktemp -d)"
+    curl -fsSL "${RNL_RAW_BASE_URL}/scripts/install-xray.sh" -o "${xray_tmp}/install-xray.sh"
+    curl -fsSL "${RNL_RAW_BASE_URL}/scripts/install-node-alpine.messages.sh" \
+      -o "${xray_tmp}/install-node-alpine.messages.sh"
+    bash "${xray_tmp}/install-xray.sh"
+    rm -rf "$xray_tmp"
   fi
 }
 
 setup_directories() {
-  step "创建目录"
+  step directories
   run mkdir -p "$ETC_DIR" "$DATA_DIR" "$LOG_DIR" /run/remnanode
   run chmod 0755 "$ETC_DIR" "$DATA_DIR" "$LOG_DIR" /run/remnanode
 }
 
 setup_env_file() {
-  step "配置 ${NODE_ENV}"
+  step environment "$NODE_ENV"
   local port
   port="$(effective_node_port)"
   validate_port "$port"
@@ -448,7 +450,11 @@ setup_env_file() {
     if [ "$PORT_EXPLICIT" -eq 1 ] || [ -n "${NODE_PORT:-}" ]; then
       update_node_port_in_env "$port"
     else
-      echo "保留现有配置：${NODE_ENV}（NODE_PORT=$(configured_node_port)）"
+      if [ "$RNL_LANG" = "en" ]; then
+        echo "Keep existing configuration: ${NODE_ENV} (NODE_PORT=$(configured_node_port))"
+      else
+        echo "保留现有配置：${NODE_ENV}（NODE_PORT=$(configured_node_port)）"
+      fi
     fi
     return 0
   fi
@@ -465,11 +471,11 @@ setup_env_file() {
 
   render_env_template "$port" "$low_mem" "install-node-alpine.sh" >"$NODE_ENV"
   chmod 600 "$NODE_ENV"
-  echo "已创建 ${NODE_ENV}"
+  if [ "$RNL_LANG" = "en" ]; then echo "Created ${NODE_ENV}"; else echo "已创建 ${NODE_ENV}"; fi
 }
 
 setup_secret_file() {
-  step "配置 Secret Key"
+  step secret
 
   if secret_configured; then
     if secret_from_env_file; then
@@ -494,7 +500,7 @@ setup_secret_file() {
 }
 
 setup_vnstat() {
-  step "配置 vnStat 默认网卡"
+  step vnstat
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] rc-update add vnstat default"
     echo "[dry-run] rc-service vnstat restart"
@@ -535,19 +541,19 @@ setup_vnstat() {
     if printf '%s' "$json" | grep -q "\"year\":${year}" && \
       printf '%s' "$json" | grep -q "\"month\":${month}" && \
       printf '%s' "$json" | grep -q "\"day\":${day}"; then
-      echo "OK: vnStat 正在跟踪 ${iface}"
+      rnl_msg vnstat_ready "$iface"
       return 0
     fi
     sleep 1
     i=$((i + 1))
   done
 
-  echo "vnStat 数据未在 30s 内更新，请检查 vnstat 服务和接口 ${iface}。" >&2
+  rnl_msg vnstat_failed "$iface" >&2
   exit 1
 }
 
 install_openrc() {
-  step "安装 OpenRC 服务"
+  step openrc
   local dir
   dir="$(script_dir)"
 
@@ -574,7 +580,7 @@ install_openrc() {
 }
 
 install_helpers() {
-  step "安装日志辅助命令"
+  step helpers
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] xlogs / xerrors"
     return 0
@@ -593,12 +599,12 @@ EOF
 
 start_service() {
   if ! secret_configured; then
-    echo "⚠ Secret Key 未配置，跳过启动服务。"
+    rnl_msg secret_missing
     echo "  请编辑 ${NODE_ENV} 填入 NODE_PORT 与 SECRET_KEY 后：${RESTART_CMD}"
     return 0
   fi
 
-  step "启动 remnawave-node 服务"
+  step start_service
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] ${RESTART_CMD}"
     return 0
@@ -670,14 +676,8 @@ do_install() {
   print_panel_address_hint "$(configured_node_port)"
 
   echo
-  echo "Alpine 安装完成。"
-  echo "  二进制：    ${PREFIX}/${BIN_NAME}"
-  echo "  环境配置：  ${NODE_ENV}"
-  echo "  监听端口：  $(configured_node_port)（Panel 须填相同端口）"
-  echo "  服务管理：  rc-service remnawave-node {start|stop|restart|status}"
-  echo "  日志：      tail -f /var/log/remnanode/openrc.log"
-  echo "  Xray：      xlogs / xerrors"
-  echo "  管理：      再次运行 install-node-alpine.sh 可升级或卸载"
+  rnl_msg install_complete
+  rnl_print_install_summary "${PREFIX}/${BIN_NAME}" "$NODE_ENV" "$(configured_node_port)"
   if ! secret_configured; then
     print_env_config_hint "$RESTART_CMD"
   fi

@@ -21,8 +21,8 @@ not expose HAProxy forwarding telemetry.
 ## Install
 
 Create an `ALPINE_NATIVE` node in the RemnaPlus dashboard and use the pinned
-install command shown there. The installer asks for the node `SECRET_KEY`
-separately; the generated command never embeds credentials.
+Chinese or English install command shown there. Both entry points run the same
+installer engine; only operator-facing messages differ.
 
 For the current `v1.0.1` release:
 
@@ -31,6 +31,10 @@ curl -fsSL https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v1.0
   -o /tmp/remnaplus-alpine-node.sh
 sudo RNL_TAG=v1.0.1 bash /tmp/remnaplus-alpine-node.sh --install --port 2222
 ```
+
+Use `scripts/install-node-alpine-en.sh` for English output. The dashboard's
+generated command supplies the existing Node Secret Key non-interactively;
+keep that command private and run it only in the target Alpine root shell.
 
 The service configuration is stored in `/etc/remnanode/node.env`, state in
 `/var/lib/remnanode`, and logs in `/var/log/remnanode`.
