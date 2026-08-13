@@ -46,6 +46,29 @@ func TestAccountingSnapshotReplaysPendingUntilAcknowledged(t *testing.T) {
 	if next.Users[0].Uplink != "15" {
 		t.Fatalf("next uplink = %s, want 15", next.Users[0].Uplink)
 	}
+	repeated, err := service.Snapshot(context.Background(), first.SampleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repeated.SampleID != next.SampleID || repeated.Users[0].Uplink != "15" {
+		t.Fatalf("repeated acknowledgement changed pending sample: %+v", repeated)
+	}
+	for _, diagnostic := range repeated.Diagnostics {
+		if diagnostic.Code == "ACCOUNTING_ACK_UNKNOWN" {
+			t.Fatalf("repeated acknowledgement was reported unknown: %+v", repeated.Diagnostics)
+		}
+	}
+	unknown, err := service.Snapshot(context.Background(), "unknown-sample")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundUnknown := false
+	for _, diagnostic := range unknown.Diagnostics {
+		foundUnknown = foundUnknown || diagnostic.Code == "ACCOUNTING_ACK_UNKNOWN"
+	}
+	if !foundUnknown {
+		t.Fatalf("unknown acknowledgement diagnostic missing: %+v", unknown.Diagnostics)
+	}
 }
 
 func TestAccountingSnapshotPreservesMaxInt64AndRebaselines(t *testing.T) {

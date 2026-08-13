@@ -90,14 +90,14 @@ func (s *AccountingSnapshotService) Snapshot(ctx context.Context, acknowledge st
 		return AccountingResponse{}, err
 	}
 	extra := []AccountingDiagnostic{}
-	if acknowledge != "" && journal.Pending != nil {
-		if acknowledge == journal.Pending.SampleID {
+	if acknowledge != "" {
+		if journal.Pending != nil && acknowledge == journal.Pending.SampleID {
 			journal.Acknowledged = &accountingCheckpoint{Counters: journal.Pending.To, Generation: journal.Pending.Generation, SampleID: journal.Pending.SampleID}
 			journal.Pending = nil
 			if err := s.write(journal); err != nil {
 				return AccountingResponse{}, err
 			}
-		} else {
+		} else if journal.Acknowledged == nil || acknowledge != journal.Acknowledged.SampleID {
 			extra = append(extra, AccountingDiagnostic{Code: "ACCOUNTING_ACK_UNKNOWN", Message: "Acknowledgement does not match the pending accounting sample."})
 		}
 	}
