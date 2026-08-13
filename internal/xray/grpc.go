@@ -55,6 +55,25 @@ func (m *Manager) GetAllUsersStats(ctx context.Context, reset bool) ([]xtls.User
 	return api.GetAllUsersStats(ctx, reset)
 }
 
+func (m *Manager) ReadAccountingCounters(ctx context.Context) (map[string]int64, string, error) {
+	api, closeFn, err := m.statsAPI(ctx, true)
+	if err != nil {
+		return nil, "", err
+	}
+	defer closeFn()
+	result, err := api.GetAccountingCounters(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	generation := "xray-process-unknown"
+	if m.process != nil && m.process.cmd != nil && m.process.cmd.Process != nil {
+		generation = fmt.Sprintf("xray-pid-%d", m.process.cmd.Process.Pid)
+	}
+	return result.Counters, generation, nil
+}
+
 func (m *Manager) GetUserOnlineStatus(ctx context.Context, username string) (bool, error) {
 	api, closeFn, err := m.statsAPI(ctx, true)
 	if err != nil {

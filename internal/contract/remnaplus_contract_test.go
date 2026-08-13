@@ -21,7 +21,7 @@ func TestRemnaPlusApprovedRouteContractIsExactAndWired(t *testing.T) {
 	expected := []string{
 		"/node/xray/start", "/node/xray/stop", "/node/xray/healthcheck",
 		"/node/sni-health/status", "/node/sni-health/probe",
-		"/node/stats/get-user-online-status", "/node/stats/get-users-stats",
+		"/node/stats/get-user-online-status", "/node/stats/get-accounting-snapshot", "/node/stats/get-users-stats",
 		"/node/stats/get-system-stats", "/node/stats/get-audit-log-chunk",
 		"/node/stats/get-audit-log-source-metadata", "/node/stats/clean-audit-logs",
 		"/node/stats/get-tcp-connections", "/node/stats/get-inbound-stats",

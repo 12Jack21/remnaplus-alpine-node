@@ -20,6 +20,12 @@ import (
 
 type failingUsersStatsProvider struct{}
 
+type routeAccountingReader struct{}
+
+func (routeAccountingReader) ReadAccountingCounters(context.Context) (map[string]int64, string, error) {
+	return map[string]int64{"user>>>29>>>uplink": 1}, "xray-1", nil
+}
+
 func (failingUsersStatsProvider) GetSysStats(context.Context) (*xtls.SysStats, error) {
 	return &xtls.SysStats{}, nil
 }
@@ -68,6 +74,32 @@ func TestHandleNodeRoutesUsersStatsError(t *testing.T) {
 	}
 	if body["errorCode"] != "A011" {
 		t.Fatalf("errorCode = %v, want A011", body["errorCode"])
+	}
+}
+
+func TestHandleNodeRoutesAccountingSnapshot(t *testing.T) {
+	service := stats.NewAccountingSnapshotService(routeAccountingReader{}, filepath.Join(t.TempDir(), "accounting.json"))
+	server := &Server{statsService: stats.NewService(failingUsersStatsProvider{}, nil, service)}
+	req := httptest.NewRequest(http.MethodPost, "/node/stats/get-accounting-snapshot", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	server.handleNodeRoutes(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Response struct {
+			ContractVersion int  `json:"contractVersion"`
+			Pending         bool `json:"pending"`
+			Users           []struct {
+				Uplink string `json:"uplink"`
+			} `json:"users"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Response.ContractVersion != 1 || !body.Response.Pending || body.Response.Users[0].Uplink != "0" {
+		t.Fatalf("unexpected response: %+v", body.Response)
 	}
 }
 

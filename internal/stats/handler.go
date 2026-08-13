@@ -3,6 +3,8 @@ package stats
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -30,10 +32,35 @@ type ReportsCounter interface {
 type Service struct {
 	provider       Provider
 	reportsCounter ReportsCounter
+	accounting     *AccountingSnapshotService
 }
 
-func NewService(provider Provider, reportsCounter ReportsCounter) *Service {
-	return &Service{provider: provider, reportsCounter: reportsCounter}
+func NewService(provider Provider, reportsCounter ReportsCounter, accounting ...*AccountingSnapshotService) *Service {
+	service := &Service{provider: provider, reportsCounter: reportsCounter}
+	if len(accounting) > 0 {
+		service.accounting = accounting[0]
+	}
+	return service
+}
+
+func (s *Service) HandleGetAccountingSnapshot(w http.ResponseWriter, r *http.Request, write writeJSONFn) {
+	if s.accounting == nil {
+		writeAPIError(write, w, errFailedCombinedStats)
+		return
+	}
+	var body struct {
+		AcknowledgeSampleID string `json:"acknowledgeSampleId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		write(w, http.StatusBadRequest, map[string]any{"message": "invalid JSON body"})
+		return
+	}
+	response, err := s.accounting.Snapshot(r.Context(), body.AcknowledgeSampleID)
+	if err != nil {
+		writeAPIError(write, w, errFailedCombinedStats)
+		return
+	}
+	write(w, http.StatusOK, envelope[AccountingResponse]{Response: response})
 }
 
 type envelope[T any] struct {

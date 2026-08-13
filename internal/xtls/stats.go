@@ -48,6 +48,10 @@ type UserIPEntry struct {
 	IPs    []IPEntry `json:"ips"`
 }
 
+type AccountingCounters struct {
+	Counters map[string]int64
+}
+
 type StatsAPI struct {
 	client statscommand.StatsServiceClient
 	conn   *grpc.ClientConn
@@ -107,6 +111,18 @@ func (s *StatsAPI) GetAllUsersStats(ctx context.Context, reset bool) ([]UserTraf
 		return nil, err
 	}
 	return parseUserTrafficStats(resp.Stat), nil
+}
+
+func (s *StatsAPI) GetAccountingCounters(ctx context.Context) (AccountingCounters, error) {
+	resp, err := s.client.QueryStats(ctx, &statscommand.QueryStatsRequest{Pattern: "", Reset_: false})
+	if err != nil {
+		return AccountingCounters{}, err
+	}
+	counters := make(map[string]int64, len(resp.Stat))
+	for _, item := range resp.Stat {
+		counters[item.Name] = item.Value
+	}
+	return AccountingCounters{Counters: counters}, nil
 }
 
 func (s *StatsAPI) GetInboundStats(ctx context.Context, tag string, reset bool) (TagTraffic, error) {

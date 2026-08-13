@@ -26,6 +26,7 @@ var responseShapeTests = map[string]func(t *testing.T){
 	"/node/xray/stop":                           testXrayStopResponseShape,
 	"/node/xray/healthcheck":                    testXrayHealthcheckResponseShape,
 	"/node/stats/get-user-online-status":        testGetUserOnlineStatusResponseShape,
+	"/node/stats/get-accounting-snapshot":       testGetAccountingSnapshotResponseShape,
 	"/node/stats/get-tcp-connections":           testGetTCPConnectionsResponseShape,
 	"/node/stats/get-audit-log-chunk":           testGetAuditLogChunkResponseShape,
 	"/node/stats/get-audit-log-source-metadata": testGetAuditLogSourceMetadataResponseShape,
@@ -121,6 +122,30 @@ func testXrayHealthcheckResponseShape(t *testing.T) {
 func statsService(t *testing.T) *stats.Service {
 	t.Helper()
 	return stats.NewService(stubStatsProvider{}, stubReportsCounter{})
+}
+
+type accountingShapeReader struct{}
+
+func (accountingShapeReader) ReadAccountingCounters(context.Context) (map[string]int64, string, error) {
+	return map[string]int64{"user>>>29>>>uplink": 1}, "xray-1", nil
+}
+
+func testGetAccountingSnapshotResponseShape(t *testing.T) {
+	service := stats.NewService(stubStatsProvider{}, stubReportsCounter{}, stats.NewAccountingSnapshotService(accountingShapeReader{}, filepath.Join(t.TempDir(), "accounting.json")))
+	req := httptest.NewRequest(http.MethodPost, "/node/stats/get-accounting-snapshot", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	service.HandleGetAccountingSnapshot(rec, req, writeTestJSON)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	raw := rec.Body.Bytes()
+	assertTopLevelResponse(t, raw)
+	assertJSONPath(t, raw, "response.contractVersion")
+	assertJSONPath(t, raw, "response.generation")
+	assertJSONPath(t, raw, "response.sampleId")
+	assertJSONPath(t, raw, "response.sampledAt")
+	assertJSONPath(t, raw, "response.pending")
+	assertJSONPath(t, raw, "response.users")
 }
 
 func testGetUserOnlineStatusResponseShape(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/12Jack21/remnaplus-alpine-node/internal/auditlog"
@@ -45,7 +46,7 @@ func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator
 	probeEngine := snihealth.NewProbeEngine(snihealth.NativeProbeAdapters(xrayPinger), snihealth.DefaultProbeLimits(), time.Now)
 	server := &Server{
 		manager:          manager,
-		statsService:     stats.NewService(manager, pluginService),
+		statsService:     stats.NewService(manager, pluginService, stats.NewAccountingSnapshotService(manager, filepath.Join(cfg.DataDir, "accounting-snapshot.json"))),
 		auditLogService:  auditlog.NewServiceForLogDir(cfg.LogDir),
 		sniHealthService: snihealth.NewService(manager, probeEngine.Probe, time.Now),
 		handlerService:   nodehandler.NewService(manager, dropper),
@@ -112,6 +113,8 @@ func (s *Server) handleNodeRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleCleanAuditLogs(w, r)
 	case r.Method == http.MethodPost && path == "/node/stats/get-users-stats":
 		s.statsService.HandleGetUsersStats(w, r, write)
+	case r.Method == http.MethodPost && path == "/node/stats/get-accounting-snapshot":
+		s.statsService.HandleGetAccountingSnapshot(w, r, write)
 	case r.Method == http.MethodPost && path == "/node/stats/get-inbound-stats":
 		s.statsService.HandleGetInboundStats(w, r, write)
 	case r.Method == http.MethodPost && path == "/node/stats/get-outbound-stats":
