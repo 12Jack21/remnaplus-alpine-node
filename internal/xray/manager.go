@@ -105,7 +105,8 @@ type StartResponse struct {
 }
 
 type NodeInformation struct {
-	Version *string `json:"version"`
+	AccountingSnapshot bool    `json:"accountingSnapshot"`
+	Version            *string `json:"version"`
 }
 
 type StopResponse struct {
@@ -678,7 +679,8 @@ func (m *Manager) startResponse(isStarted bool, message *string) StartResponse {
 		Version:   version,
 		Error:     message,
 		NodeInformation: NodeInformation{
-			Version: stringPtr(nodeversion.ReportedNodeVersion()),
+			AccountingSnapshot: true,
+			Version:            stringPtr(nodeversion.ReportedNodeVersion()),
 		},
 		System: system.GetSnapshot(),
 	}
