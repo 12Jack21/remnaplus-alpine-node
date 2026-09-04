@@ -99,6 +99,46 @@ func TestAccountingSnapshotAcceptsLegacyThreePartUserCounter(t *testing.T) {
 	}
 }
 
+func TestAccountingSnapshotAggregatesLegacyAndCanonicalCounters(t *testing.T) {
+	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{
+		"user>>>29>>>traffic>>>uplink": 10,
+		"user>>>29>>>uplink":           100,
+	}}
+	service := NewAccountingSnapshotService(reader, filepath.Join(t.TempDir(), "accounting.json"))
+	baseline, err := service.Snapshot(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.counters["user>>>29>>>traffic>>>uplink"] = 25
+	reader.counters["user>>>29>>>uplink"] = 106
+	sample, err := service.Snapshot(context.Background(), baseline.SampleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sample.Users) != 1 || sample.Users[0].Uplink != "21" {
+		t.Fatalf("aggregated user counter = %+v, want 21 uplink", sample.Users)
+	}
+}
+
+func TestAccountingSnapshotKeepsDeltaStableWhenCounterSpellingChanges(t *testing.T) {
+	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{
+		"user>>>29>>>uplink": 100,
+	}}
+	service := NewAccountingSnapshotService(reader, filepath.Join(t.TempDir(), "accounting.json"))
+	baseline, err := service.Snapshot(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.counters = map[string]int64{"user>>>29>>>traffic>>>uplink": 120}
+	sample, err := service.Snapshot(context.Background(), baseline.SampleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sample.Users) != 1 || sample.Users[0].Uplink != "20" {
+		t.Fatalf("spelling migration delta = %+v, want 20 uplink", sample.Users)
+	}
+}
+
 func TestAccountingSnapshotReportsUnsupportedRecognizedCounter(t *testing.T) {
 	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{
 		"user>>>29>>>other>>>foo>>>uplink": 10,

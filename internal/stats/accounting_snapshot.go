@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
@@ -140,7 +141,18 @@ func (s *AccountingSnapshotService) Snapshot(ctx context.Context, acknowledge st
 }
 
 func accountingResponse(p *accountingPending, extra []AccountingDiagnostic) AccountingResponse {
-	rows := map[string]*AccountingTraffic{}
+	type counterKey struct {
+		kind      string
+		name      string
+		direction string
+	}
+	type accountingRow struct {
+		name     string
+		downlink *big.Int
+		uplink   *big.Int
+	}
+	currentCounters := map[counterKey]*big.Int{}
+	previousCounters := map[counterKey]*big.Int{}
 	unsupportedCounterCount := 0
 	for name, value := range p.To {
 		kind, counterName, direction, ok := parseAccountingCounterName(name)
@@ -150,20 +162,49 @@ func accountingResponse(p *accountingPending, extra []AccountingDiagnostic) Acco
 			}
 			continue
 		}
-		current, _ := strconv.ParseInt(value, 10, 64)
-		old, _ := strconv.ParseInt(p.From[name], 10, 64)
-		delta := current - old
-		if delta < 0 {
-			delta = 0
+		key := counterKey{kind: kind, name: counterName, direction: direction}
+		current, ok := new(big.Int).SetString(value, 10)
+		if !ok {
+			continue
 		}
-		key := kind + ">>>" + counterName
-		if rows[key] == nil {
-			rows[key] = &AccountingTraffic{Name: counterName, Downlink: "0", Uplink: "0"}
+		if currentCounters[key] == nil {
+			currentCounters[key] = new(big.Int)
 		}
-		if direction == "downlink" {
-			rows[key].Downlink = strconv.FormatInt(delta, 10)
+		currentCounters[key].Add(currentCounters[key], current)
+	}
+	for name, value := range p.From {
+		kind, counterName, direction, ok := parseAccountingCounterName(name)
+		if !ok {
+			continue
+		}
+		old, ok := new(big.Int).SetString(value, 10)
+		if !ok {
+			continue
+		}
+		key := counterKey{kind: kind, name: counterName, direction: direction}
+		if previousCounters[key] == nil {
+			previousCounters[key] = new(big.Int)
+		}
+		previousCounters[key].Add(previousCounters[key], old)
+	}
+	rows := map[string]*accountingRow{}
+	for key, current := range currentCounters {
+		previous := previousCounters[key]
+		if previous == nil {
+			previous = new(big.Int)
+		}
+		delta := new(big.Int).Sub(current, previous)
+		if delta.Sign() < 0 {
+			delta.SetInt64(0)
+		}
+		rowKey := key.kind + ">>>" + key.name
+		if rows[rowKey] == nil {
+			rows[rowKey] = &accountingRow{name: key.name, downlink: new(big.Int), uplink: new(big.Int)}
+		}
+		if key.direction == "downlink" {
+			rows[rowKey].downlink.Add(rows[rowKey].downlink, delta)
 		} else {
-			rows[key].Uplink = strconv.FormatInt(delta, 10)
+			rows[rowKey].uplink.Add(rows[rowKey].uplink, delta)
 		}
 	}
 	keys := make([]string, 0, len(rows))
@@ -183,11 +224,11 @@ func accountingResponse(p *accountingPending, extra []AccountingDiagnostic) Acco
 		row := rows[key]
 		switch {
 		case strings.HasPrefix(key, "user>>>"):
-			r.Users = append(r.Users, AccountingUser{row.Name, row.Downlink, row.Uplink})
+			r.Users = append(r.Users, AccountingUser{row.name, row.downlink.String(), row.uplink.String()})
 		case strings.HasPrefix(key, "inbound>>>"):
-			r.Inbounds = append(r.Inbounds, AccountingInbound{row.Name, row.Downlink, row.Uplink})
+			r.Inbounds = append(r.Inbounds, AccountingInbound{row.name, row.downlink.String(), row.uplink.String()})
 		case strings.HasPrefix(key, "outbound>>>"):
-			r.Outbounds = append(r.Outbounds, AccountingOutbound{row.Name, row.Downlink, row.Uplink})
+			r.Outbounds = append(r.Outbounds, AccountingOutbound{row.name, row.downlink.String(), row.uplink.String()})
 		}
 	}
 	return r
