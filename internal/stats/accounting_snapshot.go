@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -140,9 +141,13 @@ func (s *AccountingSnapshotService) Snapshot(ctx context.Context, acknowledge st
 
 func accountingResponse(p *accountingPending, extra []AccountingDiagnostic) AccountingResponse {
 	rows := map[string]*AccountingTraffic{}
+	unsupportedCounterCount := 0
 	for name, value := range p.To {
-		parts := strings.Split(name, ">>>")
-		if len(parts) != 3 || (parts[2] != "downlink" && parts[2] != "uplink") {
+		kind, counterName, direction, ok := parseAccountingCounterName(name)
+		if !ok {
+			if isAccountingCounterName(name) {
+				unsupportedCounterCount++
+			}
 			continue
 		}
 		current, _ := strconv.ParseInt(value, 10, 64)
@@ -151,11 +156,11 @@ func accountingResponse(p *accountingPending, extra []AccountingDiagnostic) Acco
 		if delta < 0 {
 			delta = 0
 		}
-		key := parts[0] + ">>>" + parts[1]
+		key := kind + ">>>" + counterName
 		if rows[key] == nil {
-			rows[key] = &AccountingTraffic{Name: parts[1], Downlink: "0", Uplink: "0"}
+			rows[key] = &AccountingTraffic{Name: counterName, Downlink: "0", Uplink: "0"}
 		}
-		if parts[2] == "downlink" {
+		if direction == "downlink" {
 			rows[key].Downlink = strconv.FormatInt(delta, 10)
 		} else {
 			rows[key].Uplink = strconv.FormatInt(delta, 10)
@@ -166,7 +171,14 @@ func accountingResponse(p *accountingPending, extra []AccountingDiagnostic) Acco
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	r := AccountingResponse{ContractVersion: 1, Diagnostics: append(append([]AccountingDiagnostic{}, p.Diagnostics...), extra...), Generation: p.Generation, Inbounds: []AccountingInbound{}, Outbounds: []AccountingOutbound{}, Pending: true, SampleID: p.SampleID, SampledAt: p.SampledAt, Users: []AccountingUser{}}
+	diagnostics := append(append([]AccountingDiagnostic{}, p.Diagnostics...), extra...)
+	if unsupportedCounterCount > 0 {
+		diagnostics = append(diagnostics, AccountingDiagnostic{
+			Code:    "ACCOUNTING_COUNTER_FORMAT_UNSUPPORTED",
+			Message: fmt.Sprintf("Skipped %d Xray accounting counter(s) with unsupported names.", unsupportedCounterCount),
+		})
+	}
+	r := AccountingResponse{ContractVersion: 1, Diagnostics: diagnostics, Generation: p.Generation, Inbounds: []AccountingInbound{}, Outbounds: []AccountingOutbound{}, Pending: true, SampleID: p.SampleID, SampledAt: p.SampledAt, Users: []AccountingUser{}}
 	for _, key := range keys {
 		row := rows[key]
 		switch {
@@ -179,6 +191,34 @@ func accountingResponse(p *accountingPending, extra []AccountingDiagnostic) Acco
 		}
 	}
 	return r
+}
+
+func parseAccountingCounterName(raw string) (kind, name, direction string, ok bool) {
+	parts := strings.Split(raw, ">>>")
+	if len(parts) < 3 {
+		return "", "", "", false
+	}
+	kind = parts[0]
+	if kind != "user" && kind != "inbound" && kind != "outbound" {
+		return "", "", "", false
+	}
+	direction = parts[len(parts)-1]
+	if direction != "downlink" && direction != "uplink" {
+		return "", "", "", false
+	}
+	middle := parts[1 : len(parts)-1]
+	if len(middle) == 2 && middle[1] == "traffic" && middle[0] != "" {
+		return kind, middle[0], direction, true
+	}
+	if len(middle) == 1 && middle[0] != "" {
+		return kind, middle[0], direction, true
+	}
+	return "", "", "", false
+}
+
+func isAccountingCounterName(raw string) bool {
+	family := strings.SplitN(raw, ">>>", 2)[0]
+	return family == "user" || family == "inbound" || family == "outbound"
 }
 func (s *AccountingSnapshotService) read() (accountingJournal, error) {
 	data, err := os.ReadFile(s.path)

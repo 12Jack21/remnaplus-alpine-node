@@ -17,13 +17,17 @@ func (s *accountingReaderStub) ReadAccountingCounters(context.Context) (map[stri
 }
 
 func TestAccountingSnapshotReplaysPendingUntilAcknowledged(t *testing.T) {
-	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{"user>>>29>>>uplink": 10}}
+	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{
+		"user>>>29>>>traffic>>>uplink":   10,
+		"user>>>29>>>traffic>>>downlink": 20,
+	}}
 	service := NewAccountingSnapshotService(reader, filepath.Join(t.TempDir(), "accounting.json"))
 	baseline, err := service.Snapshot(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader.counters["user>>>29>>>uplink"] = 25
+	reader.counters["user>>>29>>>traffic>>>uplink"] = 25
+	reader.counters["user>>>29>>>traffic>>>downlink"] = 40
 	first, err := service.Snapshot(context.Background(), baseline.SampleID)
 	if err != nil {
 		t.Fatal(err)
@@ -31,13 +35,20 @@ func TestAccountingSnapshotReplaysPendingUntilAcknowledged(t *testing.T) {
 	if first.Users[0].Uplink != "15" {
 		t.Fatalf("uplink = %s, want 15", first.Users[0].Uplink)
 	}
-	reader.counters["user>>>29>>>uplink"] = 40
+	if first.Users[0].Downlink != "20" {
+		t.Fatalf("downlink = %s, want 20", first.Users[0].Downlink)
+	}
+	reader.counters["user>>>29>>>traffic>>>uplink"] = 40
+	reader.counters["user>>>29>>>traffic>>>downlink"] = 70
 	replay, err := service.Snapshot(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if replay.SampleID != first.SampleID || replay.Users[0].Uplink != "15" {
 		t.Fatalf("pending sample was not replayed: %+v", replay)
+	}
+	if replay.Users[0].Downlink != "20" {
+		t.Fatalf("replayed downlink = %s, want 20", replay.Users[0].Downlink)
 	}
 	next, err := service.Snapshot(context.Background(), first.SampleID)
 	if err != nil {
@@ -68,6 +79,41 @@ func TestAccountingSnapshotReplaysPendingUntilAcknowledged(t *testing.T) {
 	}
 	if !foundUnknown {
 		t.Fatalf("unknown acknowledgement diagnostic missing: %+v", unknown.Diagnostics)
+	}
+}
+
+func TestAccountingSnapshotAcceptsLegacyThreePartUserCounter(t *testing.T) {
+	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{"user>>>29>>>uplink": 10}}
+	service := NewAccountingSnapshotService(reader, filepath.Join(t.TempDir(), "accounting.json"))
+	baseline, err := service.Snapshot(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.counters["user>>>29>>>uplink"] = 19
+	sample, err := service.Snapshot(context.Background(), baseline.SampleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sample.Users) != 1 || sample.Users[0].Uplink != "9" {
+		t.Fatalf("legacy user counter = %+v, want 9 uplink", sample.Users)
+	}
+}
+
+func TestAccountingSnapshotReportsUnsupportedRecognizedCounter(t *testing.T) {
+	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{
+		"user>>>29>>>other>>>foo>>>uplink": 10,
+		"system>>>cpu>>>uplink":            20,
+	}}
+	service := NewAccountingSnapshotService(reader, filepath.Join(t.TempDir(), "accounting.json"))
+	sample, err := service.Snapshot(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sample.Users) != 0 {
+		t.Fatalf("users = %+v, want empty", sample.Users)
+	}
+	if len(sample.Diagnostics) != 2 || sample.Diagnostics[1].Code != "ACCOUNTING_COUNTER_FORMAT_UNSUPPORTED" {
+		t.Fatalf("diagnostics = %+v", sample.Diagnostics)
 	}
 }
 

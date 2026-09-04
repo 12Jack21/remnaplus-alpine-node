@@ -40,6 +40,16 @@ func TestParseUserTrafficStats(t *testing.T) {
 	}
 }
 
+func TestParseUserTrafficStatsIgnoresUnsupportedShapes(t *testing.T) {
+	stats := []*statscommand.Stat{
+		{Name: "user>>>alice@example.com>>>uplink", Value: 100},
+	}
+	users := parseUserTrafficStats(stats)
+	if len(users) != 0 {
+		t.Fatalf("users = %#v, want empty", users)
+	}
+}
+
 func TestParseAllTagTraffic(t *testing.T) {
 	stats := []*statscommand.Stat{
 		{Name: "inbound>>>vless-in>>>traffic>>>uplink", Value: 10},
