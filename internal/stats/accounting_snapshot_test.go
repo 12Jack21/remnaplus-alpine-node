@@ -99,6 +99,30 @@ func TestAccountingSnapshotAcceptsLegacyThreePartUserCounter(t *testing.T) {
 	}
 }
 
+func TestAccountingSnapshotEmitsUserCreatedAfterBaseline(t *testing.T) {
+	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{
+		"user>>>29>>>traffic>>>uplink":   10,
+		"user>>>29>>>traffic>>>downlink": 20,
+	}}
+	service := NewAccountingSnapshotService(reader, filepath.Join(t.TempDir(), "accounting.json"))
+	baseline, err := service.Snapshot(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.counters["user>>>42>>>traffic>>>uplink"] = 12
+	reader.counters["user>>>42>>>traffic>>>downlink"] = 7
+	sample, err := service.Snapshot(context.Background(), baseline.SampleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sample.Users) != 2 || sample.Users[0].Username != "29" || sample.Users[1].Username != "42" {
+		t.Fatalf("users = %+v, want baseline and newly created user", sample.Users)
+	}
+	if sample.Users[1].Uplink != "12" || sample.Users[1].Downlink != "7" {
+		t.Fatalf("new user delta = %+v, want 12 uplink and 7 downlink", sample.Users[1])
+	}
+}
+
 func TestAccountingSnapshotAggregatesLegacyAndCanonicalCounters(t *testing.T) {
 	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{
 		"user>>>29>>>traffic>>>uplink": 10,
