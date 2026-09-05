@@ -98,7 +98,7 @@ func TestHandleNodeRoutesAccountingSnapshot(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Response.ContractVersion != 1 || !body.Response.Pending || body.Response.Users[0].Uplink != "0" {
+	if body.Response.ContractVersion != 1 || !body.Response.Pending || len(body.Response.Users) != 0 {
 		t.Fatalf("unexpected response: %+v", body.Response)
 	}
 }

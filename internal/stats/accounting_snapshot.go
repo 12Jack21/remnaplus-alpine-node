@@ -222,6 +222,9 @@ func accountingResponse(p *accountingPending, extra []AccountingDiagnostic) Acco
 	r := AccountingResponse{ContractVersion: 1, Diagnostics: diagnostics, Generation: p.Generation, Inbounds: []AccountingInbound{}, Outbounds: []AccountingOutbound{}, Pending: true, SampleID: p.SampleID, SampledAt: p.SampledAt, Users: []AccountingUser{}}
 	for _, key := range keys {
 		row := rows[key]
+		if row.downlink.Sign() == 0 && row.uplink.Sign() == 0 {
+			continue
+		}
 		switch {
 		case strings.HasPrefix(key, "user>>>"):
 			r.Users = append(r.Users, AccountingUser{row.name, row.downlink.String(), row.uplink.String()})

@@ -115,11 +115,31 @@ func TestAccountingSnapshotEmitsUserCreatedAfterBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sample.Users) != 2 || sample.Users[0].Username != "29" || sample.Users[1].Username != "42" {
-		t.Fatalf("users = %+v, want baseline and newly created user", sample.Users)
+	if len(sample.Users) != 1 || sample.Users[0].Username != "42" {
+		t.Fatalf("users = %+v, want only newly created user", sample.Users)
 	}
-	if sample.Users[1].Uplink != "12" || sample.Users[1].Downlink != "7" {
-		t.Fatalf("new user delta = %+v, want 12 uplink and 7 downlink", sample.Users[1])
+	if sample.Users[0].Uplink != "12" || sample.Users[0].Downlink != "7" {
+		t.Fatalf("new user delta = %+v, want 12 uplink and 7 downlink", sample.Users[0])
+	}
+}
+
+func TestAccountingSnapshotOmitsUnchangedZeroDeltaUserRows(t *testing.T) {
+	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{
+		"user>>>29>>>traffic>>>uplink": 10,
+		"user>>>29>>>traffic>>>downlink": 20,
+		"outbound>>>DIRECT>>>uplink": 5,
+	}}
+	service := NewAccountingSnapshotService(reader, filepath.Join(t.TempDir(), "accounting.json"))
+	baseline, err := service.Snapshot(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sample, err := service.Snapshot(context.Background(), baseline.SampleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sample.Users) != 0 {
+		t.Fatalf("users = %+v, want no unchanged zero-delta rows", sample.Users)
 	}
 }
 
@@ -202,7 +222,7 @@ func TestAccountingSnapshotPreservesMaxInt64AndRebaselines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rebaseline.Outbounds[0].Downlink != "0" || rebaseline.Diagnostics[0].Code != "ACCOUNTING_REBASELINE" {
+	if len(rebaseline.Outbounds) != 0 || rebaseline.Diagnostics[0].Code != "ACCOUNTING_REBASELINE" {
 		t.Fatalf("unexpected rebaseline: %+v", rebaseline)
 	}
 }
