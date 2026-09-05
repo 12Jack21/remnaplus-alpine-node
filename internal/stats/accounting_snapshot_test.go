@@ -82,6 +82,89 @@ func TestAccountingSnapshotReplaysPendingUntilAcknowledged(t *testing.T) {
 	}
 }
 
+func TestAccountingSnapshotQuarantinesAggregateOnlyPendingSampleBeforeFreshUserAccounting(t *testing.T) {
+	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{
+		"outbound>>>DIRECT>>>downlink": 10,
+	}}
+	service := NewAccountingSnapshotService(reader, filepath.Join(t.TempDir(), "accounting.json"))
+	baseline, err := service.Snapshot(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.counters["outbound>>>DIRECT>>>downlink"] = 30
+	aggregateOnly, err := service.Snapshot(context.Background(), baseline.SampleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregateOnly.Users) != 0 || len(aggregateOnly.Outbounds) != 1 {
+		t.Fatalf("aggregate-only sample = %#v", aggregateOnly)
+	}
+
+	reader.counters["outbound>>>DIRECT>>>downlink"] = 70
+	reader.counters["user>>>42>>>traffic>>>downlink"] = 40
+	rebaseline, err := service.Snapshot(context.Background(), "", aggregateOnly.SampleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rebaseline.SampleID == aggregateOnly.SampleID {
+		t.Fatal("quarantine did not replace the pending sample")
+	}
+	if len(rebaseline.Users) != 0 || !hasAccountingDiagnostic(rebaseline.Diagnostics, "ACCOUNTING_QUARANTINED") || !hasAccountingDiagnostic(rebaseline.Diagnostics, "ACCOUNTING_REBASELINE") {
+		t.Fatalf("quarantine rebaseline = %#v", rebaseline)
+	}
+
+	reader.counters["outbound>>>DIRECT>>>downlink"] = 80
+	reader.counters["user>>>42>>>traffic>>>downlink"] = 50
+	freshUser, err := service.Snapshot(context.Background(), rebaseline.SampleID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(freshUser.Users) != 1 || freshUser.Users[0].Username != "42" || freshUser.Users[0].Downlink != "10" {
+		t.Fatalf("fresh user delta = %#v, want user 42 downlink 10", freshUser.Users)
+	}
+}
+
+func TestAccountingSnapshotRejectsConflictingActionsWithoutMutatingPendingSample(t *testing.T) {
+	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{
+		"user>>>42>>>traffic>>>downlink": 10,
+	}}
+	service := NewAccountingSnapshotService(reader, filepath.Join(t.TempDir(), "accounting.json"))
+	baseline, err := service.Snapshot(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.counters["user>>>42>>>traffic>>>downlink"] = 20
+	pending, err := service.Snapshot(context.Background(), baseline.SampleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conflicted, err := service.Snapshot(context.Background(), pending.SampleID, pending.SampleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conflicted.SampleID != pending.SampleID || !hasAccountingDiagnostic(conflicted.Diagnostics, "ACCOUNTING_ACTION_INVALID") {
+		t.Fatalf("conflicting action mutated or was not diagnosed: %#v", conflicted)
+	}
+
+	replay, err := service.Snapshot(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.SampleID != pending.SampleID || replay.Users[0].Downlink != "10" {
+		t.Fatalf("pending sample changed after conflicting action: %#v", replay)
+	}
+}
+
+func hasAccountingDiagnostic(diagnostics []AccountingDiagnostic, code string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAccountingSnapshotAcceptsLegacyThreePartUserCounter(t *testing.T) {
 	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{"user>>>29>>>uplink": 10}}
 	service := NewAccountingSnapshotService(reader, filepath.Join(t.TempDir(), "accounting.json"))
@@ -125,9 +208,9 @@ func TestAccountingSnapshotEmitsUserCreatedAfterBaseline(t *testing.T) {
 
 func TestAccountingSnapshotOmitsUnchangedZeroDeltaUserRows(t *testing.T) {
 	reader := &accountingReaderStub{generation: "xray-1", counters: map[string]int64{
-		"user>>>29>>>traffic>>>uplink": 10,
+		"user>>>29>>>traffic>>>uplink":   10,
 		"user>>>29>>>traffic>>>downlink": 20,
-		"outbound>>>DIRECT>>>uplink": 5,
+		"outbound>>>DIRECT>>>uplink":     5,
 	}}
 	service := NewAccountingSnapshotService(reader, filepath.Join(t.TempDir(), "accounting.json"))
 	baseline, err := service.Snapshot(context.Background(), "")

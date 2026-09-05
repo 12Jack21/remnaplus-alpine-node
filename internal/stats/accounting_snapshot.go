@@ -72,6 +72,11 @@ type accountingPending struct {
 type accountingJournal struct {
 	Acknowledged *accountingCheckpoint `json:"acknowledged,omitempty"`
 	Pending      *accountingPending    `json:"pending,omitempty"`
+	Quarantined  *struct {
+		Generation    string `json:"generation"`
+		QuarantinedAt string `json:"quarantinedAt"`
+		SampleID      string `json:"sampleId"`
+	} `json:"quarantined,omitempty"`
 }
 
 type AccountingSnapshotService struct {
@@ -84,7 +89,7 @@ func NewAccountingSnapshotService(reader AccountingReader, path string) *Account
 	return &AccountingSnapshotService{reader: reader, path: path}
 }
 
-func (s *AccountingSnapshotService) Snapshot(ctx context.Context, acknowledge string) (AccountingResponse, error) {
+func (s *AccountingSnapshotService) Snapshot(ctx context.Context, acknowledge string, quarantine ...string) (AccountingResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	journal, err := s.read()
@@ -92,7 +97,13 @@ func (s *AccountingSnapshotService) Snapshot(ctx context.Context, acknowledge st
 		return AccountingResponse{}, err
 	}
 	extra := []AccountingDiagnostic{}
-	if acknowledge != "" {
+	quarantineSampleID := ""
+	if len(quarantine) > 0 {
+		quarantineSampleID = quarantine[0]
+	}
+	if acknowledge != "" && quarantineSampleID != "" {
+		extra = append(extra, AccountingDiagnostic{Code: "ACCOUNTING_ACTION_INVALID", Message: "Accounting acknowledgement and quarantine are mutually exclusive."})
+	} else if acknowledge != "" {
 		if journal.Pending != nil && acknowledge == journal.Pending.SampleID {
 			journal.Acknowledged = &accountingCheckpoint{Counters: journal.Pending.To, Generation: journal.Pending.Generation, SampleID: journal.Pending.SampleID}
 			journal.Pending = nil
@@ -101,6 +112,37 @@ func (s *AccountingSnapshotService) Snapshot(ctx context.Context, acknowledge st
 			}
 		} else if journal.Acknowledged == nil || acknowledge != journal.Acknowledged.SampleID {
 			extra = append(extra, AccountingDiagnostic{Code: "ACCOUNTING_ACK_UNKNOWN", Message: "Acknowledgement does not match the pending accounting sample."})
+		}
+	} else if quarantineSampleID != "" {
+		if journal.Pending != nil && quarantineSampleID == journal.Pending.SampleID {
+			// Read before replacing the retained sample. A reader or disk failure must leave it retryable.
+			counters, generation, err := s.reader.ReadAccountingCounters(ctx)
+			if err != nil {
+				return AccountingResponse{}, err
+			}
+			to := map[string]string{}
+			for name, value := range counters {
+				to[name] = strconv.FormatInt(value, 10)
+			}
+			old := journal.Pending
+			journal.Acknowledged = &accountingCheckpoint{Counters: old.To, Generation: old.Generation, SampleID: old.SampleID}
+			journal.Quarantined = &struct {
+				Generation    string `json:"generation"`
+				QuarantinedAt string `json:"quarantinedAt"`
+				SampleID      string `json:"sampleId"`
+			}{Generation: old.Generation, QuarantinedAt: time.Now().UTC().Format(time.RFC3339Nano), SampleID: old.SampleID}
+			journal.Pending = &accountingPending{
+				Diagnostics: []AccountingDiagnostic{
+					{Code: "ACCOUNTING_QUARANTINED", Message: "An unattributable accounting sample was quarantined without assigning its bytes to users."},
+					{Code: "ACCOUNTING_REBASELINE", Message: "A fresh cumulative baseline was captured after the quarantined accounting sample."},
+				},
+				From: to, Generation: generation, SampleID: accountingID(), SampledAt: time.Now().UTC().Format(time.RFC3339Nano), To: to,
+			}
+			if err := s.write(journal); err != nil {
+				return AccountingResponse{}, err
+			}
+		} else if journal.Quarantined == nil || journal.Quarantined.SampleID != quarantineSampleID {
+			extra = append(extra, AccountingDiagnostic{Code: "ACCOUNTING_QUARANTINE_UNKNOWN", Message: "Quarantine does not match the pending accounting sample."})
 		}
 	}
 	if journal.Pending != nil {

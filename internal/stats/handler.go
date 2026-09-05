@@ -51,12 +51,13 @@ func (s *Service) HandleGetAccountingSnapshot(w http.ResponseWriter, r *http.Req
 	}
 	var body struct {
 		AcknowledgeSampleID string `json:"acknowledgeSampleId"`
+		QuarantineSampleID  string `json:"quarantineSampleId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
 		write(w, http.StatusBadRequest, map[string]any{"message": "invalid JSON body"})
 		return
 	}
-	response, err := s.accounting.Snapshot(r.Context(), body.AcknowledgeSampleID)
+	response, err := s.accounting.Snapshot(r.Context(), body.AcknowledgeSampleID, body.QuarantineSampleID)
 	if err != nil {
 		writeAPIError(write, w, errFailedCombinedStats)
 		return
