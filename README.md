@@ -24,12 +24,12 @@ Create an `ALPINE_NATIVE` node in the RemnaPlus dashboard and use the pinned
 Chinese or English install command shown there. Both entry points run the same
 installer engine; only operator-facing messages differ.
 
-For the current `v1.0.2` release:
+For the current `v1.0.3` release:
 
 ```bash
-curl -fsSL 'https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v1.0.2/scripts/install-node-alpine.sh' \
+curl -fsSL 'https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v1.0.3/scripts/install-node-alpine.sh' \
   -o '/tmp/remnaplus-alpine-node.sh' &&
-env RNL_TAG='v1.0.2' SECRET_KEY='<redacted>' bash '/tmp/remnaplus-alpine-node.sh' \
+env RNL_TAG='v1.0.3' SECRET_KEY='<redacted>' bash '/tmp/remnaplus-alpine-node.sh' \
   --install --yes --port 2222
 ```
 

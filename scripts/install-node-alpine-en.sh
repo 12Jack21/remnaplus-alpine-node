@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.0.2"
+VERSION="1.0.3"
 REPO="${RNL_REPO:-12Jack21/remnaplus-alpine-node}"
 TAG="${RNL_TAG:-v${VERSION}}"
 RAW_BASE="${RNL_RAW_BASE_URL:-https://raw.githubusercontent.com/${REPO}/${TAG}}"

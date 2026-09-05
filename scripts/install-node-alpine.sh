@@ -2,7 +2,7 @@
 # github.com/12Jack21/remnaplus-alpine-node Alpine Linux 一键安装（OpenRC）
 set -euo pipefail
 
-VERSION="1.0.2"
+VERSION="1.0.3"
 RNL_LANG="${RNL_LANG:-zh}"
 export RNL_LANG
 PREFIX="/usr/local/bin"
