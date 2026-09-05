@@ -40,13 +40,13 @@ func TestParseUserTrafficStats(t *testing.T) {
 	}
 }
 
-func TestParseUserTrafficStatsIgnoresUnsupportedShapes(t *testing.T) {
+func TestParseUserTrafficStatsAcceptsLegacyThreePartShape(t *testing.T) {
 	stats := []*statscommand.Stat{
 		{Name: "user>>>alice@example.com>>>uplink", Value: 100},
 	}
 	users := parseUserTrafficStats(stats)
-	if len(users) != 0 {
-		t.Fatalf("users = %#v, want empty", users)
+	if len(users) != 1 || users[0].Username != "alice@example.com" || users[0].Uplink != 100 {
+		t.Fatalf("users = %#v, want one legacy user row", users)
 	}
 }
 

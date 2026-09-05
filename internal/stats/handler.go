@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/12Jack21/remnaplus-alpine-node/internal/system"
@@ -171,8 +172,8 @@ func (s *Service) HandleGetUsersStats(w http.ResponseWriter, r *http.Request, wr
 		}
 		users = append(users, userTrafficResponse{
 			Username: item.Username,
-			Downlink: item.Downlink,
-			Uplink:   item.Uplink,
+			Downlink: strconv.FormatInt(item.Downlink, 10),
+			Uplink:   strconv.FormatInt(item.Uplink, 10),
 		})
 	}
 	write(w, http.StatusOK, envelope[struct {
@@ -398,8 +399,8 @@ func (s *Service) HandleGetUsersIPList(w http.ResponseWriter, r *http.Request, w
 
 type userTrafficResponse struct {
 	Username string `json:"username"`
-	Downlink int64  `json:"downlink"`
-	Uplink   int64  `json:"uplink"`
+	Downlink string `json:"downlink"`
+	Uplink   string `json:"uplink"`
 }
 
 type inboundTrafficResponse struct {

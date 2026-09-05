@@ -280,11 +280,18 @@ func parseUserTrafficStats(stats []*statscommand.Stat) []UserTraffic {
 	users := map[string]*UserTraffic{}
 	for _, stat := range stats {
 		parts := strings.Split(stat.Name, ">>>")
-		if len(parts) < 4 || parts[0] != "user" {
+		if len(parts) < 3 || parts[0] != "user" {
 			continue
 		}
 		username := parts[1]
-		direction := parts[3]
+		direction := parts[len(parts)-1]
+		if username == "" || (direction != "uplink" && direction != "downlink") {
+			continue
+		}
+		middle := parts[1 : len(parts)-1]
+		if len(middle) != 1 && !(len(middle) == 2 && middle[1] == "traffic") {
+			continue
+		}
 		entry, ok := users[username]
 		if !ok {
 			entry = &UserTraffic{Username: username}
@@ -292,9 +299,9 @@ func parseUserTrafficStats(stats []*statscommand.Stat) []UserTraffic {
 		}
 		switch direction {
 		case "downlink":
-			entry.Downlink = stat.Value
+			entry.Downlink += stat.Value
 		case "uplink":
-			entry.Uplink = stat.Value
+			entry.Uplink += stat.Value
 		}
 	}
 	result := make([]UserTraffic, 0, len(users))
