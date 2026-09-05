@@ -115,6 +115,7 @@ type StopResponse struct {
 
 type HealthResponse struct {
 	IsAlive                  bool    `json:"isAlive"`
+	AccountingSnapshot      bool    `json:"accountingSnapshot"`
 	XrayInternalStatusCached bool    `json:"xrayInternalStatusCached"`
 	XrayVersion              *string `json:"xrayVersion"`
 	NodeVersion              string  `json:"nodeVersion"`
@@ -412,6 +413,7 @@ func (m *Manager) Health() HealthResponse {
 
 	return HealthResponse{
 		IsAlive:                  true,
+		AccountingSnapshot:      true,
 		XrayInternalStatusCached: online,
 		XrayVersion:              version,
 		NodeVersion:              nodeversion.ReportedNodeVersion(),
