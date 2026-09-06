@@ -1,6 +1,8 @@
 package contract_test
 
 import (
+	"encoding/json"
+	"os"
 	"testing"
 )
 
@@ -86,5 +88,38 @@ func TestApprovedRoutesCoverage(t *testing.T) {
 		if !implementedRoutes[route] {
 			t.Fatalf("route %s not marked implemented in lite-go", route)
 		}
+	}
+}
+
+func TestReviewedOfficialRoutesAreImplemented(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile("official-routes-2.8.0.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot struct {
+		SchemaVersion  int      `json:"schemaVersion"`
+		Commit         string   `json:"commit"`
+		PackageVersion string   `json:"packageVersion"`
+		Routes         []string `json:"routes"`
+	}
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.SchemaVersion != 1 || snapshot.Commit == "" || snapshot.PackageVersion != "2.8.0" {
+		t.Fatalf("invalid reviewed official contract snapshot: %+v", snapshot)
+	}
+	seen := make(map[string]bool, len(snapshot.Routes))
+	for _, route := range snapshot.Routes {
+		if seen[route] {
+			t.Fatalf("duplicate official route %s", route)
+		}
+		seen[route] = true
+		if !implementedRoutes[route] {
+			t.Fatalf("official route %s is not implemented", route)
+		}
+	}
+	if len(snapshot.Routes) != 26 {
+		t.Fatalf("official route count = %d, want reviewed count 26", len(snapshot.Routes))
 	}
 }

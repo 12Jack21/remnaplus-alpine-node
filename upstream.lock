@@ -13,6 +13,13 @@
     "reportedNodeVersion": "3.3.2",
     "wireContractVersion": "3.2.3"
   },
+  "officialContract": {
+    "repository": "https://github.com/remnawave/node.git",
+    "tag": "2.8.0",
+    "tagObject": "444175f0e98195c7fa09852cf5fe320810c43247",
+    "commit": "596f015a5c8f876dc9a9d61b6cb78d35bd8e379b",
+    "packageVersion": "2.8.0"
+  },
   "local": {
     "reportedNodeVersion": "2.8.0",
     "dashboardWireContractVersion": "2.7.0",
@@ -53,6 +60,14 @@
       "tests": ["go test ./internal/instance", "go test ./cmd/remnanode-lite"]
     },
     {
+      "name": "contract-sync-ci",
+      "status": "accepted",
+      "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
+      "localPaths": [".github/workflows/contract-sync.yml", "scripts/extract-contract-routes.py", "scripts/verify-contract-sync.py", "internal/contract/official-routes-2.8.0.json"],
+      "rationale": "Adapt upstream's TypeScript constant expander and bind CI to the reviewed official 2.8.0 commit and route snapshot. Remove mutable main and fallback checkout behavior; a manual ref must match the reviewed lock before contract tests run.",
+      "tests": ["python3 scripts/verify-contract-sync.py <official-2.8.0-checkout>", "go test ./internal/contract"]
+    },
+    {
       "name": "strict-secrets",
       "status": "accepted",
       "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
@@ -69,5 +84,5 @@
       "tests": ["go test ./internal/contract ./internal/secret ./internal/httpserver ./internal/version"]
     }
   ],
-  "pendingReview": ["prestart", "debian-installer", "managed-core-installer-migration", "transitive-fetch-pinning", "contract-sync-ci"]
+  "pendingReview": ["prestart", "debian-installer", "managed-core-installer-migration", "transitive-fetch-pinning"]
 }

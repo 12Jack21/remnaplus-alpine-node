@@ -9,3 +9,6 @@ go test ./internal/artifact ./internal/xray ./internal/contract ./internal/audit
   ./internal/vnstat ./internal/stats ./internal/secret ./internal/httpserver \
   ./internal/version ./internal/instance ./cmd/remnanode-lite
 bash scripts/dashboard-secret-compat.test.sh
+if [ -n "${RNL_OFFICIAL_NODE_CHECKOUT:-}" ]; then
+  python3 scripts/verify-contract-sync.py "$RNL_OFFICIAL_NODE_CHECKOUT"
+fi
