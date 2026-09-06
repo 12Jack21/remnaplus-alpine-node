@@ -23,76 +23,10 @@ jobs:
         run: |
           set -euo pipefail
           go test ./...
-          mkdir -p dist
-          VERSION="${GITHUB_REF_NAME#v}"
-          tag="${GITHUB_REF_NAME}"
-          CONTRACT_VERSION="$(tr -d ' \n\r' < internal/version/contract.version)"
-
-          host_arch="$(uname -m)"
-          for arch in amd64 arm64; do
-            out_dir="$(mktemp -d)"
-            CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" \
-              go build -trimpath \
-                -ldflags="-s -w -X github.com/12Jack21/remnaplus-alpine-node/internal/version.Version=${VERSION} -X github.com/12Jack21/remnaplus-alpine-node/internal/version.ContractVersion=${CONTRACT_VERSION}" \
-                -o "${out_dir}/remnanode-lite" \
-                ./cmd/remnanode-lite
-
-            # amd64 runner cannot execute arm64 binaries (Exec format error)
-            case "${arch}:${host_arch}" in
-              amd64:x86_64|arm64:aarch64|arm64:arm64)
-                "${out_dir}/remnanode-lite" version
-                ;;
-              *)
-                file "${out_dir}/remnanode-lite"
-                ;;
-            esac
-
-            printf '%s\n' \
-              "remnanode-lite ${GITHUB_REF_NAME} linux/${arch}" \
-              "" \
-              "Extract and install to /usr/local/bin/remnanode-lite" \
-              > "${out_dir}/README.txt"
-
-            tar -C "${out_dir}" -czf "dist/remnanode-lite_linux_${arch}.tar.gz" remnanode-lite README.txt
-            rm -rf "${out_dir}"
-          done
-
-          amd64_sha="$(sha256sum dist/remnanode-lite_linux_amd64.tar.gz | awk '{print $1}')"
-          arm64_sha="$(sha256sum dist/remnanode-lite_linux_arm64.tar.gz | awk '{print $1}')"
-          installer_root="$(mktemp -d)/remnanode-native-installer"
-          mkdir -p "${installer_root}/scripts" "${installer_root}/deploy"
-          cp \
-            scripts/install-node.sh \
-            scripts/install-node-alpine.sh \
-            scripts/install-node-alpine-en.sh \
-            scripts/install-node-alpine.messages.sh \
-            scripts/install-env-helpers.sh \
-            scripts/install-xray.sh \
-            scripts/upgrade.sh \
-            scripts/uninstall.sh \
-            "${installer_root}/scripts/"
-          cp \
-            deploy/remnawave-node.service \
-            deploy/remnawave-node.openrc \
-            deploy/remnawave-node-run.sh \
-            "${installer_root}/deploy/"
-          {
-            printf 'RNL_BINARY_SHA256_AMD64=%q\n' "$amd64_sha"
-            printf 'RNL_BINARY_SHA256_ARM64=%q\n' "$arm64_sha"
-          } > "${installer_root}/release.env"
-          chmod 0644 "${installer_root}/release.env"
-          tar -C "$(dirname "$installer_root")" -czf \
-            "dist/remnanode-native-installer_${tag}.tar.gz" \
-            remnanode-native-installer
-
-          git archive \
-            --format=tar.gz \
-            --prefix="remnaplus-alpine-node-${tag}/" \
-            -o "dist/remnaplus-alpine-node-source-${tag}.tar.gz" \
-            HEAD
-
-          cd dist
-          sha256sum remnanode-lite_linux_amd64.tar.gz remnanode-lite_linux_arm64.tar.gz remnanode-native-installer_${tag}.tar.gz remnaplus-alpine-node-source-${tag}.tar.gz > SHA256SUMS
+          bash scripts/build-release-assets.sh \
+            --tag "${GITHUB_REF_NAME}" \
+            --output dist \
+            --manifest candidate-manifest.json
 
       - uses: softprops/action-gh-release@v2
         with:

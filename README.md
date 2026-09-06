@@ -1,7 +1,7 @@
-# RemnaPlus Alpine Node
+# RemnaPlus Native Node
 
-RemnaPlus's native Go node for Alpine Linux and OpenRC. It installs as a
-single static binary and runs directly on the VPS without Docker.
+RemnaPlus's native Go node for Alpine Linux/OpenRC and Debian 12/systemd. It
+installs as a single static binary and runs directly on the VPS without Docker.
 
 This repository is the public release mirror for the canonical source in the
 private RemnaPlus monorepo. Published tags contain the complete corresponding
@@ -10,13 +10,14 @@ AGPL source and immutable `linux/amd64` and `linux/arm64` release artifacts.
 ## Support
 
 - Alpine Linux with OpenRC
+- Debian 12 with systemd
 - `amd64` and `arm64`
 - Remnawave node contract `2.8.0`
 - Direct node telemetry, plugins, audit APIs, and Reality SNI health
 
-Non-Alpine VPS nodes must use the standard Docker Remnanode supplied by
-RemnaPlus. Alpine-native nodes cannot be forwarding sources or targets and do
-not expose HAProxy forwarding telemetry.
+Native nodes cannot be forwarding sources or targets and do not expose HAProxy
+forwarding telemetry. Debian VPS nodes may still use the standard Docker
+Remnanode when the native runtime is not selected.
 
 ## Install
 
@@ -24,18 +25,26 @@ Create an `ALPINE_NATIVE` node in the RemnaPlus dashboard and use the pinned
 Chinese or English install command shown there. Both entry points run the same
 installer engine; only operator-facing messages differ.
 
-For the current `v1.0.3` release:
+The current public release is `v1.0.3`. Source `v1.0.4` is a canary candidate
+and must not be installed from GitHub until its immutable publication gate
+passes. Dashboard launchers request the Secret Key separately so credentials
+are not embedded in a long pasted command.
+
+For the current public Alpine release:
 
 ```bash
 curl -fsSL 'https://raw.githubusercontent.com/12Jack21/remnaplus-alpine-node/v1.0.3/scripts/install-node-alpine.sh' \
   -o '/tmp/remnaplus-alpine-node.sh' &&
-env RNL_TAG='v1.0.3' SECRET_KEY='<redacted>' bash '/tmp/remnaplus-alpine-node.sh' \
-  --install --yes --port 2222
+read -rsp 'Node Secret Key: ' NODE_SECRET; echo
+umask 077; printf '%s' "$NODE_SECRET" > /tmp/remnanode-secret.key; unset NODE_SECRET
+env RNL_TAG='v1.0.3' bash '/tmp/remnaplus-alpine-node.sh' \
+  --install --yes --port 2222 --secret-file /tmp/remnanode-secret.key
+rm -f /tmp/remnanode-secret.key
 ```
 
 Use `scripts/install-node-alpine-en.sh` for English output. The dashboard's
-generated command supplies the existing Node Secret Key non-interactively;
-keep that command private and run it only in the target Alpine root shell.
+generated flow keeps the existing Node Secret Key separate from the launcher;
+keep it private and enter it only in the target native VPS root shell.
 
 The service configuration is stored in `/etc/remnanode/node.env`, state in
 `/var/lib/remnanode`, and logs in `/var/log/remnanode`.

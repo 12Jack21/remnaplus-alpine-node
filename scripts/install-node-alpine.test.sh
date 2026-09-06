@@ -24,8 +24,8 @@ assert_absent() {
   fi
 }
 
-assert_contains "$installer" 'VERSION="1\.0\.3"'
-assert_contains "$installer_en" 'VERSION="1\.0\.3"'
+assert_contains "$installer" 'VERSION="1\.0\.4"'
+assert_contains "$installer_en" 'VERSION="1\.0\.4"'
 assert_contains "$installer" '/etc/alpine-release'
 assert_contains "$installer" 'RNL_RELEASE_BASE_URL'
 assert_contains "$installer" 'RNL_INSTALLER_BUNDLE_SHA256'
@@ -38,7 +38,7 @@ assert_contains "$installer" 'ip route.*default'
 assert_contains "$installer" 'vnstat --add -i'
 assert_contains "$installer" 'rc-update add remnawave-node default'
 
-assert_contains "$upgrade" 'VERSION="1\.0\.3"'
+assert_contains "$upgrade" 'VERSION="1\.0\.4"'
 assert_contains "$upgrade" 'RNL_RELEASE_BASE_URL'
 assert_contains "$upgrade" 'RNL_BINARY_SHA256_'
 assert_contains "$upgrade" 'sha256sum -c -'

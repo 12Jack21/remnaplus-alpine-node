@@ -12,7 +12,7 @@ rm -rf "$http_root"
 mkdir -p "$http_root"
 cp -R /release/. "$http_root/"
 mkdir -p "$http_root/corrupt"
-cp "$http_root/ok/"* "$http_root/corrupt/"
+cp "$http_root/candidate/"* "$http_root/corrupt/"
 printf 'corrupt' >> "$http_root/corrupt/remnanode-lite_linux_amd64.tar.gz"
 
 httpd -f -p 127.0.0.1:18080 -h "$http_root" &
@@ -41,7 +41,7 @@ trap 'status=$?; diagnostics "$status"; kill "$httpd_pid" 2>/dev/null || true; e
 
 ready=0
 for _ in $(seq 1 20); do
-  if curl -fsS http://127.0.0.1:18080/ok/SHA256SUMS >/dev/null; then
+  if curl -fsS http://127.0.0.1:18080/candidate/SHA256SUMS >/dev/null; then
     ready=1
     break
   fi
@@ -65,9 +65,9 @@ bash "${workspace}/test/alpine/generate-auth-fixture.sh" "$auth_dir"
 export SECRET_KEY TOKEN CA_CERT CLIENT_CERT CLIENT_KEY
 
 SECRET_KEY="$SECRET_KEY" \
-  CUSTOM_CORE_URL=http://127.0.0.1:18080/fake-rw-core \
+  CUSTOM_CORE_URL=http://127.0.0.1:18080/fixtures/fake-rw-core \
   RNL_OPENRC_DIRECT_START=1 \
-  RNL_RELEASE_BASE_URL=http://127.0.0.1:18080/ok \
+  RNL_RELEASE_BASE_URL=http://127.0.0.1:18080/candidate \
   bash "${workspace}/scripts/install-node-alpine.sh" --install --yes --port 2222
 
 touch /var/log/remnanode/access.log /var/log/remnanode/error.log
@@ -75,7 +75,7 @@ echo '2026/07/30 00:00:00 tcp:127.0.0.1:12345 accepted tcp:example.com:443' >> /
 
 bash "${workspace}/test/alpine/assert-api.sh"
 
-if RNL_RELEASE_BASE_URL=http://127.0.0.1:18080/bad \
+if RNL_RELEASE_BASE_URL=http://127.0.0.1:18080/fixtures/bad \
   RNL_OPENRC_DIRECT_START=1 \
   bash "${workspace}/scripts/upgrade.sh" --yes; then
   echo "bad candidate upgrade unexpectedly succeeded" >&2

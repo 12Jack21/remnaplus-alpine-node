@@ -28,7 +28,7 @@ work_dir="${TMPDIR:-/tmp}/remnaplus-alpine-node-test"
 release_dir="${work_dir}/release"
 
 rm -rf "$work_dir"
-mkdir -p "$release_dir"
+mkdir -p "$work_dir"
 
 bash "${harness_dir}/build-release-dir.sh" "$release_dir"
 

@@ -31,7 +31,7 @@ chmod +x "$tmp/bin/curl"
 run_launcher() {
   env PATH="$tmp/bin:$PATH" \
     FETCH_FIXTURE="$1" \
-    RNL_RELEASE_BASE_URL="https://example.invalid/v1.0.3" \
+    RNL_RELEASE_BASE_URL="https://example.invalid/v1.0.4" \
     RNL_INSTALLER_BUNDLE_SHA256="${2:-}" \
     bash "$launcher" --help
 }
@@ -77,7 +77,8 @@ done
 grep -q 'CUSTOM_CORE_SHA256' "${repo_root}/scripts/install-xray.sh"
 grep -q 'ASN_DB_SHA256' "${repo_root}/scripts/install-xray.sh"
 grep -q 'XRAY_SHA256_64' "${repo_root}/scripts/install-xray.sh"
-grep -q 'RNL_BINARY_SHA256_AMD64' "${repo_root}/.github/workflows/release.yml"
-grep -q 'remnanode-native-installer_' "${repo_root}/.github/workflows/release.yml"
+grep -q 'RNL_BINARY_SHA256_AMD64' "${repo_root}/scripts/build-release-assets.sh"
+grep -q 'remnanode-native-installer_' "${repo_root}/scripts/build-release-assets.sh"
+grep -q 'scripts/build-release-assets.sh' "${repo_root}/.github/workflows/release.yml"
 
 echo "installer fetch provenance contract passed"

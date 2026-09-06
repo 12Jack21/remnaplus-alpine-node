@@ -1,0 +1,15 @@
+{
+  "contractVersion": "2.8.0",
+  "capabilities": [
+    "audit-log",
+    "host-vnstat",
+    "nftables",
+    "openrc",
+    "plugin-api",
+    "reality-sni",
+    "systemd",
+    "tcp-history",
+    "warp",
+    "xray-management"
+  ]
+}
