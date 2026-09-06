@@ -21,6 +21,30 @@
   },
   "units": [
     {
+      "name": "staged-artifacts",
+      "status": "accepted",
+      "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
+      "localPaths": ["internal/artifact"],
+      "rationale": "Port bounded HTTPS downloads and optional SHA-256 validation. Use unique private sibling staging files instead of the upstream shared .download path, and check cancellation before activation.",
+      "tests": ["go test -race ./internal/artifact"]
+    },
+    {
+      "name": "core-loader",
+      "status": "accepted",
+      "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
+      "localPaths": ["internal/xray/core_loader.go", "internal/xray/manager.go"],
+      "rationale": "Port HTTPS/SHA-256 custom core validation and managed symlink activation. Preserve regular-file installs and retain the prior core on download/version failure. Use unique private marker/link staging and serialize start/stop lifecycle. Installer migration to managed symlinks remains pending.",
+      "tests": ["go test -race ./internal/xray"]
+    },
+    {
+      "name": "geodata",
+      "status": "accepted",
+      "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
+      "localPaths": ["internal/xray/geodata.go", "internal/xray/manager.go"],
+      "rationale": "Port HTTPS data assets with plain-filename validation, bounded concurrency, ordered same-file fallback, and upstream empty-stub behavior. Keep the existing dashboard wire contract and local telemetry extensions.",
+      "tests": ["go test -race ./internal/xray", "go test ./internal/contract"]
+    },
+    {
       "name": "duplicate-instance-lock",
       "status": "accepted",
       "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
@@ -37,5 +61,5 @@
       "tests": ["go test ./internal/contract ./internal/secret ./internal/httpserver ./internal/version"]
     }
   ],
-  "pendingReview": ["staged-artifacts", "strict-secrets", "core-loader", "geodata", "prestart", "debian-installer", "transitive-fetch-pinning", "contract-sync-ci"]
+  "pendingReview": ["strict-secrets", "prestart", "debian-installer", "managed-core-installer-migration", "transitive-fetch-pinning", "contract-sync-ci"]
 }

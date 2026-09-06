@@ -38,6 +38,7 @@ type TorrentBlockerConfigProvider interface {
 }
 
 type Manager struct {
+	lifecycleMu      sync.Mutex
 	mu               sync.RWMutex
 	xrayBin          string
 	geoDir           string
@@ -49,6 +50,8 @@ type Manager struct {
 	disableHashCheck bool
 	lowMemory        bool
 	torrentBlocker   TorrentBlockerConfigProvider
+	coreLoader       *coreLoader
+	geodataLoader    *geodataLoader
 
 	xrayVersion      *string
 	xrayOnline       bool
@@ -115,7 +118,7 @@ type StopResponse struct {
 
 type HealthResponse struct {
 	IsAlive                  bool    `json:"isAlive"`
-	AccountingSnapshot      bool    `json:"accountingSnapshot"`
+	AccountingSnapshot       bool    `json:"accountingSnapshot"`
 	XrayInternalStatusCached bool    `json:"xrayInternalStatusCached"`
 	XrayVersion              *string `json:"xrayVersion"`
 	NodeVersion              string  `json:"nodeVersion"`
@@ -136,6 +139,8 @@ func NewManager(opts Options) (*Manager, error) {
 		xtlsSocket:       socket,
 		disableHashCheck: opts.DisableHashCheck,
 		lowMemory:        opts.LowMemory,
+		coreLoader:       newCoreLoader(opts.XrayBin),
+		geodataLoader:    newGeodataLoader(opts.GeoDir),
 	}
 	manager.refreshVersion()
 	return manager, nil
@@ -200,6 +205,12 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) StartResponse {
 		m.mu.Unlock()
 	}()
 
+	if !m.lifecycleMu.TryLock() {
+		message := "Request already in progress"
+		return m.startResponse(false, &message)
+	}
+	defer m.lifecycleMu.Unlock()
+
 	fullConfig := generateAPIConfig(req.XrayConfig, m.xtlsSocket, m.torrentBlockerOptions())
 	fullConfigJSON := marshalConfigJSON(fullConfig)
 
@@ -230,6 +241,13 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) StartResponse {
 			m.mu.Unlock()
 		}
 	}
+
+	geodata := fullConfig["geodata"]
+	if err := m.coreLoader.prepare(ctx, geodata); err != nil {
+		message := err.Error()
+		return m.startResponse(false, &message)
+	}
+	m.geodataLoader.prepare(ctx, geodata)
 
 	m.mu.Lock()
 	m.currentConfig = fullConfig
@@ -317,6 +335,8 @@ func (m *Manager) flushPersistedStart() {
 // boot config is removed so the node stays disabled after reboot. Process shutdown
 // must pass clearPersist=false so RestoreOnBoot can recover rw-core on next start.
 func (m *Manager) Stop(clearPersist bool) StopResponse {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
 	if !clearPersist {
 		m.flushPersistedStart()
 	}
@@ -413,7 +433,7 @@ func (m *Manager) Health() HealthResponse {
 
 	return HealthResponse{
 		IsAlive:                  true,
-		AccountingSnapshot:      true,
+		AccountingSnapshot:       true,
 		XrayInternalStatusCached: online,
 		XrayVersion:              version,
 		NodeVersion:              nodeversion.ReportedNodeVersion(),
