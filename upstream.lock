@@ -53,6 +53,14 @@
       "tests": ["go test ./internal/instance", "go test ./cmd/remnanode-lite"]
     },
     {
+      "name": "strict-secrets",
+      "status": "accepted",
+      "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
+      "localPaths": ["internal/secret/secret.go"],
+      "rationale": "Port certificate validity, CA signature, node key-pair, and unambiguous PEM validation without importing private-SNI. Additionally require the JWT key to be RSA because the retained local authenticator accepts RS256 only.",
+      "tests": ["go test -race ./internal/secret", "bash scripts/dashboard-secret-compat.test.sh"]
+    },
+    {
       "name": "private-sni-and-v3-wire-contract",
       "status": "rejected",
       "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
@@ -61,5 +69,5 @@
       "tests": ["go test ./internal/contract ./internal/secret ./internal/httpserver ./internal/version"]
     }
   ],
-  "pendingReview": ["strict-secrets", "prestart", "debian-installer", "managed-core-installer-migration", "transitive-fetch-pinning", "contract-sync-ci"]
+  "pendingReview": ["prestart", "debian-installer", "managed-core-installer-migration", "transitive-fetch-pinning", "contract-sync-ci"]
 }

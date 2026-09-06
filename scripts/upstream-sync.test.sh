@@ -8,3 +8,4 @@ cd "$ROOT_DIR"
 go test ./internal/artifact ./internal/xray ./internal/contract ./internal/auditlog ./internal/snihealth ./internal/tcpstats \
   ./internal/vnstat ./internal/stats ./internal/secret ./internal/httpserver \
   ./internal/version ./internal/instance ./cmd/remnanode-lite
+bash scripts/dashboard-secret-compat.test.sh
