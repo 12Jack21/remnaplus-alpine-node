@@ -57,6 +57,34 @@ jobs:
             rm -rf "${out_dir}"
           done
 
+          amd64_sha="$(sha256sum dist/remnanode-lite_linux_amd64.tar.gz | awk '{print $1}')"
+          arm64_sha="$(sha256sum dist/remnanode-lite_linux_arm64.tar.gz | awk '{print $1}')"
+          installer_root="$(mktemp -d)/remnanode-native-installer"
+          mkdir -p "${installer_root}/scripts" "${installer_root}/deploy"
+          cp \
+            scripts/install-node.sh \
+            scripts/install-node-alpine.sh \
+            scripts/install-node-alpine-en.sh \
+            scripts/install-node-alpine.messages.sh \
+            scripts/install-env-helpers.sh \
+            scripts/install-xray.sh \
+            scripts/upgrade.sh \
+            scripts/uninstall.sh \
+            "${installer_root}/scripts/"
+          cp \
+            deploy/remnawave-node.service \
+            deploy/remnawave-node.openrc \
+            deploy/remnawave-node-run.sh \
+            "${installer_root}/deploy/"
+          {
+            printf 'RNL_BINARY_SHA256_AMD64=%q\n' "$amd64_sha"
+            printf 'RNL_BINARY_SHA256_ARM64=%q\n' "$arm64_sha"
+          } > "${installer_root}/release.env"
+          chmod 0644 "${installer_root}/release.env"
+          tar -C "$(dirname "$installer_root")" -czf \
+            "dist/remnanode-native-installer_${tag}.tar.gz" \
+            remnanode-native-installer
+
           git archive \
             --format=tar.gz \
             --prefix="remnaplus-alpine-node-${tag}/" \
@@ -64,12 +92,13 @@ jobs:
             HEAD
 
           cd dist
-          sha256sum remnanode-lite_linux_amd64.tar.gz remnanode-lite_linux_arm64.tar.gz remnaplus-alpine-node-source-${tag}.tar.gz > SHA256SUMS
+          sha256sum remnanode-lite_linux_amd64.tar.gz remnanode-lite_linux_arm64.tar.gz remnanode-native-installer_${tag}.tar.gz remnaplus-alpine-node-source-${tag}.tar.gz > SHA256SUMS
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/remnanode-lite_linux_amd64.tar.gz
             dist/remnanode-lite_linux_arm64.tar.gz
+            dist/remnanode-native-installer_${{ github.ref_name }}.tar.gz
             dist/remnaplus-alpine-node-source-${{ github.ref_name }}.tar.gz
             dist/SHA256SUMS

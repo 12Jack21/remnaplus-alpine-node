@@ -1,0 +1,34 @@
+[Unit]
+Description=Remnawave Node Lite (Go)
+Documentation=https://github.com/12Jack21/remnaplus-alpine-node
+After=network-online.target vnstat.service
+Wants=network-online.target vnstat.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/remnanode/node.env
+# 内存上限由进程按 LOW_MEMORY=1 自动设置（180MiB 软上限）；
+# 需覆盖时在 node.env 中显式设置 GOMEMLIMIT（大节点请勿设置）
+WorkingDirectory=/var/lib/remnanode
+ExecStart=/usr/local/bin/remnanode-lite
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+UMask=0077
+
+# 对齐官方 docker-compose cap_add: NET_ADMIN
+# nftables 插件、ss -K 踢连接、policy 注入均依赖此 capability
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/usr/local/bin /usr/local/share/xray /var/lib/remnanode /var/log/remnanode /run/remnanode
+
+# rw-core 子进程与 Unix socket 需要
+RuntimeDirectory=remnanode
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

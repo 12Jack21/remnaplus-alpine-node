@@ -11,9 +11,16 @@ BIN_NAME="remnanode-lite"
 NODE_ENV="${ETC_DIR}/node.env"
 REPO="${RNL_REPO:-12Jack21/remnaplus-alpine-node}"
 TAG="${RNL_TAG:-v${VERSION}}"
-RNL_RAW_BASE_URL="${RNL_RAW_BASE_URL:-https://raw.githubusercontent.com/${REPO}/${TAG}}"
 RNL_RELEASE_BASE_URL="${RNL_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/${TAG}}"
 UPGRADE_XRAY="${RNL_UPGRADE_XRAY:-0}"
+SCRIPT_DIR=""
+if resolved_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"; then
+  SCRIPT_DIR="$resolved_script_dir"
+fi
+if [ -f "${SCRIPT_DIR}/../release.env" ]; then
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR}/../release.env"
+fi
 
 YES=0
 DRY_RUN=0
@@ -54,9 +61,10 @@ while [ $# -gt 0 ]; do
 done
 
 on_error() {
+  local exit_code=$?
   echo "升级失败：${STAGE}" >&2
   echo "失败命令：${BASH_COMMAND}" >&2
-  exit $?
+  exit "$exit_code"
 }
 
 trap on_error ERR
@@ -147,19 +155,28 @@ download_candidate() {
   local archive_name="remnanode-lite_linux_${arch}.tar.gz"
   local url="${RNL_RELEASE_BASE_URL}/${archive_name}"
   local candidate_dir="${tmp}/candidate"
+  local checksum_var="RNL_BINARY_SHA256_${arch^^}"
+  local expected="${RNL_BINARY_SHA256:-${!checksum_var:-}}"
 
   step "下载候选版本 ${TAG} (linux/${arch})"
   mkdir -p "$candidate_dir"
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] curl -fsSL ${url}"
-    echo "[dry-run] curl -fsSL ${RNL_RELEASE_BASE_URL}/SHA256SUMS"
     echo "[dry-run] sha256sum -c -"
     return 0
   fi
 
+  if ! [[ "$expected" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+    echo "Missing reviewed binary SHA-256 for linux/${arch}." >&2
+    exit 1
+  fi
   curl -fsSL "$url" -o "${tmp}/${archive_name}"
-  curl -fsSL "${RNL_RELEASE_BASE_URL}/SHA256SUMS" -o "${tmp}/SHA256SUMS"
-  (cd "$tmp" && grep "  ${archive_name}$" SHA256SUMS | sha256sum -c -)
+  printf '%s  %s\n' "${expected,,}" "${tmp}/${archive_name}" | sha256sum -c -
+  while IFS= read -r entry; do
+    case "$entry" in
+      /*|../*|*/../*|*/..) echo "Unsafe binary archive entry: $entry" >&2; exit 1 ;;
+    esac
+  done < <(tar -tzf "${tmp}/${archive_name}")
   tar -xzf "${tmp}/${archive_name}" -C "$candidate_dir"
   test -x "${candidate_dir}/${BIN_NAME}"
   "${candidate_dir}/${BIN_NAME}" version
@@ -178,15 +195,15 @@ refresh_openrc() {
   if [ -f "${script_dir}/../deploy/remnawave-node-run.sh" ]; then
     install -m 0755 "${script_dir}/../deploy/remnawave-node-run.sh" "$RUN_WRAPPER"
   else
-    curl -fsSL "${RNL_RAW_BASE_URL}/deploy/remnawave-node-run.sh" -o "$RUN_WRAPPER"
-    chmod 0755 "$RUN_WRAPPER"
+    echo "Verified installer bundle is missing deploy/remnawave-node-run.sh." >&2
+    exit 1
   fi
 
   if [ -f "${script_dir}/../deploy/remnawave-node.openrc" ]; then
     install -m 0755 "${script_dir}/../deploy/remnawave-node.openrc" "$OPENRC_SVC"
   else
-    curl -fsSL "${RNL_RAW_BASE_URL}/deploy/remnawave-node.openrc" -o "$OPENRC_SVC"
-    chmod 0755 "$OPENRC_SVC"
+    echo "Verified installer bundle is missing deploy/remnawave-node.openrc." >&2
+    exit 1
   fi
   rc-update add remnawave-node default 2>/dev/null || true
 }
@@ -212,7 +229,8 @@ upgrade_xray() {
   if [ -f "${script_dir}/install-xray.sh" ]; then
     bash "${script_dir}/install-xray.sh"
   else
-    curl -fsSL "${RNL_RAW_BASE_URL}/scripts/install-xray.sh" | bash
+    echo "Verified installer bundle is missing scripts/install-xray.sh." >&2
+    exit 1
   fi
 }
 

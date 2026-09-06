@@ -40,7 +40,7 @@
       "status": "accepted",
       "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
       "localPaths": ["internal/xray/core_loader.go", "internal/xray/manager.go"],
-      "rationale": "Port HTTPS/SHA-256 custom core validation and managed symlink activation. Preserve regular-file installs and retain the prior core on download/version failure. Use unique private marker/link staging and serialize start/stop lifecycle. Installer migration to managed symlinks remains pending.",
+      "rationale": "Port HTTPS/SHA-256 custom core validation and managed symlink activation. Preserve regular-file installs and retain the prior core on download/version failure. Use unique private marker/link staging and serialize start/stop lifecycle. Native installers migrate the stock core to xray with rw-core as the managed symlink.",
       "tests": ["go test -race ./internal/xray"]
     },
     {
@@ -84,6 +84,22 @@
       "tests": ["go test -race ./internal/secret", "bash scripts/dashboard-secret-compat.test.sh"]
     },
     {
+      "name": "debian-systemd-installer",
+      "status": "accepted",
+      "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
+      "localPaths": ["scripts/install-node.sh", "deploy/remnawave-node.service"],
+      "rationale": "Adapt the upstream Debian Direct/systemd workflow to the maintained RemnaPlus binary and 2.8.0 contract. Preserve host vnStat, protected credentials, atomic binary/unit activation, rollback, and systemd-aware uninstall without importing the upstream v3 wire contract.",
+      "tests": ["bash scripts/install-node-debian.test.sh", "real Debian/systemd canary required before release"]
+    },
+    {
+      "name": "native-installer-fetch-chain",
+      "status": "accepted",
+      "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
+      "localPaths": ["scripts/install-node.sh", "scripts/install-node-alpine.sh", "scripts/install-node-alpine-en.sh", "scripts/install-xray.sh", "scripts/upgrade.sh", ".github/workflows/release.yml"],
+      "rationale": "Replace raw sibling fetches with one digest-pinned release bundle. Chain binary hashes through the verified bundle, pin the stock Xray archives, require hashes for custom core and ASN downloads, reject traversal archives, and fail closed when bundled helpers or service units are absent.",
+      "tests": ["bash scripts/install-fetch-provenance.test.sh", "bash scripts/release-assets.test.sh"]
+    },
+    {
       "name": "private-sni-and-v3-wire-contract",
       "status": "rejected",
       "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
@@ -92,5 +108,5 @@
       "tests": ["go test ./internal/contract ./internal/secret ./internal/httpserver ./internal/version"]
     }
   ],
-  "pendingReview": ["debian-installer", "managed-core-installer-migration", "transitive-fetch-pinning"]
+  "pendingReview": []
 }

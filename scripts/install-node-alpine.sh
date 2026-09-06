@@ -16,7 +16,6 @@ NODE_ENV="${ETC_DIR}/node.env"
 SECRET_FILE="${ETC_DIR}/secret.key"
 REPO="${RNL_REPO:-12Jack21/remnaplus-alpine-node}"
 TAG="${RNL_TAG:-v${VERSION}}"
-RNL_RAW_BASE_URL="${RNL_RAW_BASE_URL:-https://raw.githubusercontent.com/${REPO}/${TAG}}"
 RNL_RELEASE_BASE_URL="${RNL_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/${TAG}}"
 RESTART_CMD="rc-service remnawave-node restart"
 export RESTART_CMD
@@ -36,31 +35,46 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 _INSTALLER_DIR=""
 if [ -n "${BASH_SOURCE[0]:-}" ]; then
-  _INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+  if _RESOLVED_INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"; then
+    _INSTALLER_DIR="$_RESOLVED_INSTALLER_DIR"
+  fi
 fi
-if [ -n "$_INSTALLER_DIR" ] && [ -f "${_INSTALLER_DIR}/install-node-alpine.messages.sh" ]; then
-  # shellcheck source=install-node-alpine.messages.sh
+if [ -n "$_INSTALLER_DIR" ] && [ -f "${_INSTALLER_DIR}/install-node-alpine.messages.sh" ] && \
+   [ -f "${_INSTALLER_DIR}/install-env-helpers.sh" ]; then
+  # shellcheck disable=SC1091
   source "${_INSTALLER_DIR}/install-node-alpine.messages.sh"
+  # shellcheck disable=SC1091
+  source "${_INSTALLER_DIR}/install-env-helpers.sh"
 else
-  _MESSAGES_TMP="$(mktemp -d)"
-  curl -fsSL "${RNL_RAW_BASE_URL}/scripts/install-node-alpine.messages.sh" \
-    -o "${_MESSAGES_TMP}/install-node-alpine.messages.sh"
-  # shellcheck source=install-node-alpine.messages.sh
-  source "${_MESSAGES_TMP}/install-node-alpine.messages.sh"
+  _EXPECTED_BUNDLE="${RNL_INSTALLER_BUNDLE_SHA256:-}"
+  if ! [[ "$_EXPECTED_BUNDLE" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+    echo "Standalone installation requires the reviewed RNL_INSTALLER_BUNDLE_SHA256." >&2
+    exit 1
+  fi
+  _BOOTSTRAP_DIR="$(mktemp -d)"
+  trap 'rm -rf -- "$_BOOTSTRAP_DIR"' EXIT
+  _BUNDLE="remnanode-native-installer_${TAG}.tar.gz"
+  curl -fsSL "${RNL_RELEASE_BASE_URL}/${_BUNDLE}" -o "${_BOOTSTRAP_DIR}/${_BUNDLE}"
+  printf '%s  %s\n' "${_EXPECTED_BUNDLE,,}" "${_BOOTSTRAP_DIR}/${_BUNDLE}" | sha256sum -c -
+  while IFS= read -r entry; do
+    case "$entry" in
+      /*|../*|*/../*|*/..) echo "Unsafe installer bundle entry: $entry" >&2; exit 1 ;;
+    esac
+  done < <(tar -tzf "${_BOOTSTRAP_DIR}/${_BUNDLE}")
+  tar --no-same-owner --no-same-permissions -xzf "${_BOOTSTRAP_DIR}/${_BUNDLE}" -C "$_BOOTSTRAP_DIR"
+  _BUNDLED="${_BOOTSTRAP_DIR}/remnanode-native-installer/scripts/install-node-alpine.sh"
+  if [ ! -f "$_BUNDLED" ]; then
+    echo "Verified installer bundle does not contain scripts/install-node-alpine.sh." >&2
+    exit 1
+  fi
+  RNL_BOOTSTRAPPED=1 bash "$_BUNDLED" "$@"
+  exit $?
 fi
-if [ -n "$_INSTALLER_DIR" ] && [ -f "${_INSTALLER_DIR}/install-env-helpers.sh" ]; then
-  _HELPERS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  # shellcheck source=install-env-helpers.sh
-  source "${_HELPERS_DIR}/install-env-helpers.sh"
-else
-  _HELPERS_TMP="$(mktemp -d)"
-  curl -fsSL "${RNL_RAW_BASE_URL}/scripts/install-env-helpers.sh" \
-    -o "${_HELPERS_TMP}/install-env-helpers.sh"
-  # shellcheck source=install-env-helpers.sh
-  source "${_HELPERS_TMP}/install-env-helpers.sh"
+if [ -f "${_INSTALLER_DIR}/../release.env" ]; then
+  # shellcheck disable=SC1091
+  source "${_INSTALLER_DIR}/../release.env"
 fi
 TAG="$(resolve_install_tag "$REPO" "v${VERSION}")"
-RNL_RAW_BASE_URL="${RNL_RAW_BASE_URL:-https://raw.githubusercontent.com/${REPO}/${TAG}}"
 RNL_RELEASE_BASE_URL="${RNL_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/${TAG}}"
 INSTALL_XRAY="${RNL_INSTALL_XRAY:-1}"
 SKIP_XRAY="${RNL_SKIP_XRAY:-0}"
@@ -183,7 +197,8 @@ run_sibling_script() {
   if [ -n "$dir" ] && [ -f "${dir}/${name}" ]; then
     bash "${dir}/${name}" "$@"
   else
-    curl -fsSL "${RNL_RAW_BASE_URL}/scripts/${name}" | bash -s -- "$@"
+    echo "Verified installer bundle is missing scripts/${name}." >&2
+    exit 1
   fi
 }
 
@@ -255,7 +270,7 @@ require_root() {
   if [ "$(id -u)" -ne 0 ]; then
     rnl_msg root_required >&2
     echo "  su -" >&2
-    echo "  curl -fsSL .../install-node-alpine.sh | bash" >&2
+    echo "  然后在 Dashboard 重新复制已校验的安装命令。" >&2
     exit 1
   fi
 }
@@ -378,6 +393,8 @@ download_binary() {
   local arch="$1"
   local archive_name="remnanode-lite_linux_${arch}.tar.gz"
   local url="${RNL_RELEASE_BASE_URL}/${archive_name}"
+  local checksum_var="RNL_BINARY_SHA256_${arch^^}"
+  local expected="${RNL_BINARY_SHA256:-${!checksum_var:-}}"
   local tmp
   tmp="$(mktemp -d)"
 
@@ -389,9 +406,17 @@ download_binary() {
     return 0
   fi
 
+  if ! [[ "$expected" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+    echo "Missing reviewed binary SHA-256 for linux/${arch}." >&2
+    exit 1
+  fi
   curl -fsSL "${url}" -o "${tmp}/${archive_name}"
-  curl -fsSL "${RNL_RELEASE_BASE_URL}/SHA256SUMS" -o "${tmp}/SHA256SUMS"
-  (cd "$tmp" && grep "  ${archive_name}$" SHA256SUMS | sha256sum -c -)
+  printf '%s  %s\n' "${expected,,}" "${tmp}/${archive_name}" | sha256sum -c -
+  while IFS= read -r entry; do
+    case "$entry" in
+      /*|../*|*/../*|*/..) echo "Unsafe binary archive entry: $entry" >&2; exit 1 ;;
+    esac
+  done < <(tar -tzf "${tmp}/${archive_name}")
   tar -xzf "${tmp}/${archive_name}" -C "${tmp}"
   install -m 0755 "${tmp}/${BIN_NAME}" "${PREFIX}/${BIN_NAME}"
   rm -rf "$tmp"
@@ -424,13 +449,8 @@ install_xray() {
   if [ -n "$dir" ] && [ -f "${dir}/install-xray.sh" ]; then
     bash "${dir}/install-xray.sh"
   else
-    local xray_tmp
-    xray_tmp="$(mktemp -d)"
-    curl -fsSL "${RNL_RAW_BASE_URL}/scripts/install-xray.sh" -o "${xray_tmp}/install-xray.sh"
-    curl -fsSL "${RNL_RAW_BASE_URL}/scripts/install-node-alpine.messages.sh" \
-      -o "${xray_tmp}/install-node-alpine.messages.sh"
-    bash "${xray_tmp}/install-xray.sh"
-    rm -rf "$xray_tmp"
+    echo "Verified installer bundle is missing scripts/install-xray.sh." >&2
+    exit 1
   fi
 }
 
@@ -565,15 +585,15 @@ install_openrc() {
   if [ -n "$dir" ] && [ -f "${dir}/../deploy/remnawave-node-run.sh" ]; then
     install -m 0755 "${dir}/../deploy/remnawave-node-run.sh" "$RUN_WRAPPER"
   else
-    curl -fsSL "${RNL_RAW_BASE_URL}/deploy/remnawave-node-run.sh" -o "$RUN_WRAPPER"
-    chmod 0755 "$RUN_WRAPPER"
+    echo "Verified installer bundle is missing deploy/remnawave-node-run.sh." >&2
+    exit 1
   fi
 
   if [ -n "$dir" ] && [ -f "${dir}/../deploy/remnawave-node.openrc" ]; then
     install -m 0755 "${dir}/../deploy/remnawave-node.openrc" "$OPENRC_SVC"
   else
-    curl -fsSL "${RNL_RAW_BASE_URL}/deploy/remnawave-node.openrc" -o "$OPENRC_SVC"
-    chmod 0755 "$OPENRC_SVC"
+    echo "Verified installer bundle is missing deploy/remnawave-node.openrc." >&2
+    exit 1
   fi
 
   rc-update add remnawave-node default 2>/dev/null || true
