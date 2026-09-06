@@ -60,6 +60,14 @@
       "tests": ["go test ./internal/instance", "go test ./cmd/remnanode-lite"]
     },
     {
+      "name": "prestart-socket-cleanup",
+      "status": "accepted",
+      "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
+      "localPaths": ["internal/plugin/prestart.go", "internal/plugin/schema_validate.go", "internal/plugin/state.go", "internal/xray/prestart.go", "internal/xray/manager.go"],
+      "rationale": "Port the dashboard-supported preStart.cleanupSockets contract. Validate at most 64 absolute patterns, retain two explicit enable gates, cap expansion globally at 256 unique paths, and remove only filesystem entries identified as Unix sockets immediately before core spawn.",
+      "tests": ["go test -race ./internal/plugin ./internal/xray", "backend node-plugins.v3-1-compatibility.spec.ts"]
+    },
+    {
       "name": "contract-sync-ci",
       "status": "accepted",
       "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
@@ -84,5 +92,5 @@
       "tests": ["go test ./internal/contract ./internal/secret ./internal/httpserver ./internal/version"]
     }
   ],
-  "pendingReview": ["prestart", "debian-installer", "managed-core-installer-migration", "transitive-fetch-pinning"]
+  "pendingReview": ["debian-installer", "managed-core-installer-migration", "transitive-fetch-pinning"]
 }

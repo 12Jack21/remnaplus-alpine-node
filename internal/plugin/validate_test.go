@@ -1,6 +1,9 @@
 package plugin
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func validTorrentBlocker(enabled bool) map[string]any {
 	return map[string]any{
@@ -125,5 +128,57 @@ func TestBuildSharedIPMapUsesExtPrefix(t *testing.T) {
 	m := buildSharedIPMap(cfg, nil)
 	if _, ok := m["ext:mylist"]; !ok {
 		t.Fatalf("expected ext:mylist key, got %#v", m)
+	}
+}
+
+func TestValidatePluginConfigAcceptsPreStartCleanup(t *testing.T) {
+	t.Parallel()
+	err := ValidatePluginConfig(map[string]any{
+		"preStart": map[string]any{
+			"enabled": true,
+			"cleanupSockets": map[string]any{
+				"enabled": true,
+				"files":   []any{"/dev/shm/*.sock", "/run/xray/api.sock"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("valid pre-start cleanup rejected: %v", err)
+	}
+}
+
+func TestValidatePluginConfigRejectsUnsafePreStartCleanup(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		files any
+	}{
+		{name: "not-array", files: "bad"},
+		{name: "relative", files: []any{"relative.sock"}},
+		{name: "empty", files: []any{" "}},
+		{name: "null-byte", files: []any{"/run/xray/a\x00.sock"}},
+		{name: "too-many", files: func() []any {
+			files := make([]any, 65)
+			for index := range files {
+				files[index] = fmt.Sprintf("/run/xray/%d.sock", index)
+			}
+			return files
+		}()},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidatePluginConfig(map[string]any{
+				"preStart": map[string]any{
+					"enabled": true,
+					"cleanupSockets": map[string]any{
+						"enabled": true,
+						"files":   test.files,
+					},
+				},
+			})
+			if err == nil {
+				t.Fatal("unsafe pre-start cleanup accepted")
+			}
+		})
 	}
 }

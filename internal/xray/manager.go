@@ -35,6 +35,7 @@ type Options struct {
 type TorrentBlockerConfigProvider interface {
 	TorrentBlockerEnabled() bool
 	TorrentBlockerIncludeRuleTags() []string
+	PreStartCleanupSockets() (bool, []string)
 }
 
 type Manager struct {
@@ -259,7 +260,11 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) StartResponse {
 		log.Printf("xray/start failed: stop previous rw-core: %s", message)
 		return m.startResponse(false, &message)
 	}
+	m.mu.Unlock()
 
+	m.runPreStart()
+
+	m.mu.Lock()
 	process, err := m.startProcessLocked()
 	if err != nil {
 		m.xrayOnline = false

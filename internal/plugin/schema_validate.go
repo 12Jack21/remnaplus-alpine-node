@@ -158,6 +158,50 @@ func validateTorrentBlockerSection(raw any) error {
 	return nil
 }
 
+func validatePreStartSection(raw any) error {
+	if raw == nil {
+		return nil
+	}
+	section, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("preStart must be an object")
+	}
+	if enabled, exists := section["enabled"]; exists {
+		if _, ok := enabled.(bool); !ok {
+			return fmt.Errorf("preStart.enabled must be a boolean")
+		}
+	}
+	cleanupRaw, exists := section["cleanupSockets"]
+	if !exists || cleanupRaw == nil {
+		return nil
+	}
+	cleanup, ok := cleanupRaw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("preStart.cleanupSockets must be an object")
+	}
+	if _, ok := cleanup["enabled"].(bool); !ok {
+		return fmt.Errorf("preStart.cleanupSockets.enabled is required and must be a boolean")
+	}
+	files, ok := cleanup["files"].([]any)
+	if !ok {
+		return fmt.Errorf("preStart.cleanupSockets.files must be an array")
+	}
+	if len(files) > 64 {
+		return fmt.Errorf("preStart.cleanupSockets.files must contain no more than 64 entries")
+	}
+	for index, item := range files {
+		path, ok := item.(string)
+		if !ok {
+			return fmt.Errorf("preStart.cleanupSockets.files[%d] must be a string", index)
+		}
+		path = strings.TrimSpace(path)
+		if path == "" || !strings.HasPrefix(path, "/") || strings.ContainsRune(path, '\x00') {
+			return fmt.Errorf("preStart.cleanupSockets.files[%d] must be a non-empty absolute path without null bytes", index)
+		}
+	}
+	return nil
+}
+
 func validateConnectionDropSection(raw any) error {
 	if raw == nil {
 		return nil

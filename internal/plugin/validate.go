@@ -26,6 +26,9 @@ func ValidatePluginConfig(config map[string]any) error {
 	if err := validateTorrentBlockerSection(config["torrentBlocker"]); err != nil {
 		return err
 	}
+	if err := validatePreStartSection(config["preStart"]); err != nil {
+		return err
+	}
 
 	return nil
 }
