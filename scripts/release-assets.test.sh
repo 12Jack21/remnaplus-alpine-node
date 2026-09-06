@@ -27,6 +27,7 @@ test -x "$builder" || { echo "release asset builder is not executable" >&2; exit
 test -f "$archiver" || { echo "deterministic release archiver is missing" >&2; exit 1; }
 grep -q 'os.O_EXCL' "$archiver"
 grep -q 'sourceCommit' "$builder"
+grep -q -- '-buildvcs=false' "$builder"
 grep -q 'scripts/install-node.sh' "$builder"
 grep -q 'remnawave-node.service' "$builder"
 grep -q 'remnawave-node.openrc' "$builder"

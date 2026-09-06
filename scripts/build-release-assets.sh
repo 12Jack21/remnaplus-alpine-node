@@ -68,7 +68,7 @@ for arch in amd64 arm64; do
   (
     cd "$repo_root"
     CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
-      go build -trimpath \
+      go build -buildvcs=false -trimpath \
         -ldflags="-s -w -X github.com/12Jack21/remnaplus-alpine-node/internal/version.Version=${version_value} -X github.com/12Jack21/remnaplus-alpine-node/internal/version.ContractVersion=${contract_version}" \
         -o "$stage/remnanode-lite" ./cmd/remnanode-lite
   )
