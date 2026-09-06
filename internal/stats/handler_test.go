@@ -60,22 +60,46 @@ func writeTestJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func TestHandleGetSystemStatsReturnsErrorWhenOffline(t *testing.T) {
+func TestHandleGetSystemStatsReturnsHostTelemetryWhenOffline(t *testing.T) {
 	service := stats.NewService(offlineSysStatsProvider{}, nil)
 	rec := httptest.NewRecorder()
 	service.HandleGetSystemStats(rec, writeTestJSON)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 when rw-core offline", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 when rw-core offline", rec.Code)
 	}
 	var body struct {
-		ErrorCode string `json:"errorCode"`
+		Response struct {
+			XrayInfo any `json:"xrayInfo"`
+			System   struct {
+				Info struct {
+					CPUs int `json:"cpus"`
+				} `json:"info"`
+				Stats struct {
+					TCP struct {
+						Total int `json:"total"`
+					} `json:"tcp"`
+				} `json:"stats"`
+			} `json:"system"`
+		} `json:"response"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.ErrorCode != "A010" {
-		t.Fatalf("errorCode = %q, want A010", body.ErrorCode)
+	if body.Response.XrayInfo != nil {
+		t.Fatalf("xrayInfo = %#v, want null", body.Response.XrayInfo)
+	}
+	if body.Response.System.Info.CPUs < 1 {
+		t.Fatalf("cpus = %d, want host info", body.Response.System.Info.CPUs)
+	}
+}
+
+func TestHandleGetSystemStatsReturnsHostTelemetryWithoutProvider(t *testing.T) {
+	service := stats.NewService(nil, nil)
+	rec := httptest.NewRecorder()
+	service.HandleGetSystemStats(rec, writeTestJSON)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 without provider", rec.Code)
 	}
 }
 

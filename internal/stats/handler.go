@@ -78,6 +78,7 @@ type systemStatsResponse struct {
 		} `json:"torrentBlocker"`
 	} `json:"plugins"`
 	System struct {
+		Info           system.Info              `json:"info"`
 		ListeningPorts []tcpstats.ListeningPort `json:"listeningPorts"`
 		Stats          system.Stats             `json:"stats"`
 	} `json:"system"`
@@ -86,24 +87,20 @@ type systemStatsResponse struct {
 type writeJSONFn func(w http.ResponseWriter, status int, value any)
 
 func (s *Service) HandleGetSystemStats(w http.ResponseWriter, write writeJSONFn) {
-	if s.provider == nil {
-		writeAPIError(write, w, errFailedSystemStats)
-		return
-	}
-
-	stats, err := s.provider.GetSysStats(context.Background())
-	if err != nil || stats == nil {
-		// Align official @remnawave/node: gRPC unavailable → isOk=false (A010).
-		// Panel NodeHealthCheckQueueProcessor then calls startNode on disconnect.
-		writeAPIError(write, w, errFailedSystemStats)
-		return
+	var xrayInfo *xtls.SysStats
+	if s.provider != nil {
+		stats, err := s.provider.GetSysStats(context.Background())
+		if err == nil {
+			xrayInfo = stats
+		}
 	}
 
 	var resp systemStatsResponse
-	resp.XrayInfo = stats
+	resp.XrayInfo = xrayInfo
 	if s.reportsCounter != nil {
 		resp.Plugins.TorrentBlocker.ReportsCount = s.reportsCounter.ReportsCount()
 	}
+	resp.System.Info = system.GetInfo()
 	resp.System.Stats = system.GetStats()
 	resp.System.ListeningPorts = tcpstats.GetListeningPorts(context.Background())
 

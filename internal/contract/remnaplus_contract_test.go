@@ -65,9 +65,11 @@ func TestRemnaPlusExtendedSystemEnvelopeKeepsNullableTelemetry(t *testing.T) {
 
 	timestamp := int64(1_784_332_800)
 	payload := struct {
+		Info           system.Info              `json:"info"`
 		ListeningPorts []tcpstats.ListeningPort `json:"listeningPorts"`
 		Stats          system.Stats             `json:"stats"`
 	}{
+		Info:           system.Info{CPUs: 2, Hostname: "unconfigured-node"},
 		ListeningPorts: nil,
 		Stats: system.Stats{
 			TCP: tcpstats.Stats{},
@@ -88,6 +90,9 @@ func TestRemnaPlusExtendedSystemEnvelopeKeepsNullableTelemetry(t *testing.T) {
 	}
 	if decoded["listeningPorts"] != nil {
 		t.Fatalf("failed listening-port collection must remain nullable: %s", raw)
+	}
+	if decoded["info"].(map[string]any)["cpus"] != float64(2) {
+		t.Fatalf("host info is missing from system envelope: %s", raw)
 	}
 	stats := decoded["stats"].(map[string]any)
 	if stats["vnstatError"] != nil || stats["vnstatTotalBytes"] != nil {
