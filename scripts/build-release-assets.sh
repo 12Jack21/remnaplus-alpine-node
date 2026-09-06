@@ -55,17 +55,23 @@ trap 'rm -rf -- "$work_dir"' EXIT
 mkdir -p "$output_dir"
 
 archive_dir() {
-  go run "$repo_root/scripts/release-archive.go" \
-    --root "$1" --output "$2" --prefix "${3:-}" --epoch "$source_epoch"
+  (
+    cd "$repo_root"
+    go run scripts/release-archive.go \
+      --root "$1" --output "$2" --prefix "${3:-}" --epoch "$source_epoch"
+  )
 }
 
 for arch in amd64 arm64; do
   stage="$work_dir/binary-$arch"
   mkdir -p "$stage"
-  CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
-    go build -trimpath \
-      -ldflags="-s -w -X github.com/12Jack21/remnaplus-alpine-node/internal/version.Version=${version_value} -X github.com/12Jack21/remnaplus-alpine-node/internal/version.ContractVersion=${contract_version}" \
-      -o "$stage/remnanode-lite" "$repo_root/cmd/remnanode-lite"
+  (
+    cd "$repo_root"
+    CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+      go build -trimpath \
+        -ldflags="-s -w -X github.com/12Jack21/remnaplus-alpine-node/internal/version.Version=${version_value} -X github.com/12Jack21/remnaplus-alpine-node/internal/version.ContractVersion=${contract_version}" \
+        -o "$stage/remnanode-lite" ./cmd/remnanode-lite
+  )
   printf '%s\n\n%s\n' \
     "remnanode-lite ${tag} linux/${arch}" \
     'Extract and install to /usr/local/bin/remnanode-lite' > "$stage/README.txt"
