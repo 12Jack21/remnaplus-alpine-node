@@ -52,6 +52,28 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
+candidate_checksum() {
+  local arch="$1"
+  local archive="remnanode-lite_linux_${arch}.tar.gz"
+  local checksum
+  checksum="$(awk -v archive="$archive" '$2 == archive { print $1 }' /release/candidate/SHA256SUMS)"
+  if ! [[ "$checksum" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+    echo "candidate SHA256SUMS is missing one reviewed checksum for ${archive}" >&2
+    exit 1
+  fi
+  printf '%s' "$checksum"
+}
+
+RNL_BINARY_SHA256_AMD64="$(candidate_checksum amd64)"
+RNL_BINARY_SHA256_ARM64="$(candidate_checksum arm64)"
+export RNL_BINARY_SHA256_AMD64 RNL_BINARY_SHA256_ARM64
+CUSTOM_CORE_SHA256="$(sha256sum /release/fixtures/fake-rw-core | awk '{ print $1 }')"
+if ! [[ "$CUSTOM_CORE_SHA256" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+  echo "custom core fixture SHA-256 is invalid" >&2
+  exit 1
+fi
+export CUSTOM_CORE_SHA256
+
 if RNL_RELEASE_BASE_URL=http://127.0.0.1:18080/corrupt \
   RNL_INSTALL_XRAY=0 \
   bash "${workspace}/scripts/install-node-alpine.sh" --install --yes --port 2222; then

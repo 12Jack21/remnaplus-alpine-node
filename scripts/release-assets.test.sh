@@ -36,6 +36,12 @@ grep -q 'RNL_BINARY_SHA256_ARM64' "$builder"
 grep -q 'git .* archive' "$builder"
 grep -q 'SHA256SUMS' "$builder"
 
+integration_harness="${repo_root}/test/alpine/run-integration.sh"
+grep -q 'candidate_checksum amd64' "$integration_harness"
+grep -q 'candidate_checksum arm64' "$integration_harness"
+grep -q 'export RNL_BINARY_SHA256_AMD64 RNL_BINARY_SHA256_ARM64' "$integration_harness"
+grep -q 'export CUSTOM_CORE_SHA256' "$integration_harness"
+
 tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
 mkdir -p "$tmp/existing"
