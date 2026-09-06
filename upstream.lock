@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/ike-sh/remnawave-node-lite-go",
+  "baseline": {
+    "tag": "v1.0.2",
+    "commit": "1984341771c69e6639176cfceb171d26c91b8064",
+    "reportedNodeVersion": "2.7.0"
+  },
+  "comparison": {
+    "tag": "v1.3.0",
+    "tagObject": "aaa9cf5a6831feced98a614516891f8757171368",
+    "commit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
+    "reportedNodeVersion": "3.3.2",
+    "wireContractVersion": "3.2.3"
+  },
+  "local": {
+    "reportedNodeVersion": "2.8.0",
+    "dashboardWireContractVersion": "2.7.0",
+    "requiredExtensions": ["auditlog", "snihealth", "tcpstats", "vnstat", "accounting"],
+    "forwardingTelemetry": false
+  },
+  "units": [
+    {
+      "name": "duplicate-instance-lock",
+      "status": "accepted",
+      "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
+      "localPaths": ["internal/instance", "cmd/remnanode-lite/main.go"],
+      "rationale": "Port the Linux abstract socket lock unchanged. Adapt startup to reject a confirmed duplicate before host-state initialization; preserve best-effort warning for other socket failures.",
+      "tests": ["go test ./internal/instance", "go test ./cmd/remnanode-lite"]
+    },
+    {
+      "name": "private-sni-and-v3-wire-contract",
+      "status": "rejected",
+      "sourceCommit": "db79f4bc7474149708c397125b31b3c45c93f4dc",
+      "localPaths": ["internal/secret", "internal/httpserver", "internal/version"],
+      "rationale": "Requires a coordinated dashboard wire-contract upgrade; retain local mTLS and RemnaPlus extensions.",
+      "tests": ["go test ./internal/contract ./internal/secret ./internal/httpserver ./internal/version"]
+    }
+  ],
+  "pendingReview": ["staged-artifacts", "strict-secrets", "core-loader", "geodata", "prestart", "debian-installer", "transitive-fetch-pinning", "contract-sync-ci"]
+}

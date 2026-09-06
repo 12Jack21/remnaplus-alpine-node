@@ -17,6 +17,7 @@ import (
 	"github.com/12Jack21/remnaplus-alpine-node/internal/connections"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/doctor"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/httpserver"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/instance"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/netadmin"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/plugin"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/secret"
@@ -50,6 +51,15 @@ func main() {
 			return
 		}
 	}
+	instanceLock, acquired, lockErr := instance.Acquire()
+	if lockErr != nil {
+		log.Printf("warning: duplicate-node guard unavailable: %v", lockErr)
+	} else if !acquired {
+		log.Fatal("another Remnawave Node is already running in this network namespace")
+	} else {
+		defer instanceLock.Close()
+	}
+
 	cfg, err := config.Load(config.ResolveEnvPath())
 	if err != nil {
 		log.Fatalf("load config: %v", err)

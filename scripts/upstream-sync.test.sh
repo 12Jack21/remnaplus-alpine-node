@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+# The provenance test parses upstream.lock; the remaining tests exercise local contracts.
+go test ./internal/contract ./internal/auditlog ./internal/snihealth ./internal/tcpstats \
+  ./internal/vnstat ./internal/stats ./internal/secret ./internal/httpserver \
+  ./internal/version ./internal/instance ./cmd/remnanode-lite
