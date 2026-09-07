@@ -60,6 +60,11 @@ PATH="$tmp/bin:$PATH" \
   >"$tmp/dry-run.out"
 grep -q '监听端口：2443' "$tmp/dry-run.out"
 grep -q 'systemctl enable --now vnstat' "$tmp/dry-run.out"
+grep -q 'systemd 会在重启后自动恢复' "$tmp/dry-run.out"
+if grep -q 'OpenRC' "$tmp/dry-run.out"; then
+  echo "Debian installer emitted an OpenRC readiness hint" >&2
+  exit 1
+fi
 
 mkdir -p "$tmp/systemd"
 for version in 12 13; do

@@ -554,6 +554,16 @@ setup_directories() {
   run chmod 0755 "$ETC_DIR" "$DATA_DIR" "$LOG_DIR"
 }
 
+print_debian_panel_address_hint() {
+  local port="$1"
+  local pub_ip=""
+  pub_ip="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1 || true)"
+
+  printf '\n-------- Panel 对接 --------\n  节点端口：%s\n' "$port"
+  [ -z "$pub_ip" ] || printf '  检测到的公网 IP（参考）：%s\n' "$pub_ip"
+  printf '  在 Panel 主机测试：nc -zv -w 5 <节点IP> %s\n  节点已就绪，systemd 会在重启后自动恢复。\n----------------------------\n' "$port"
+}
+
 setup_env_file() {
   step "配置 ${NODE_ENV}"
   local port
@@ -812,7 +822,7 @@ do_install() {
   if secret_configured; then
     verify_or_rollback "$(configured_node_port)"
   fi
-  print_panel_address_hint "$(configured_node_port)"
+  print_debian_panel_address_hint "$(configured_node_port)"
 
   echo
   echo "安装完成。"
