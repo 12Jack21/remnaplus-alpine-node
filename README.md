@@ -1,6 +1,6 @@
 # RemnaPlus Native Node
 
-RemnaPlus's native Go node for Alpine Linux/OpenRC and Debian 12/systemd. It
+RemnaPlus's native Go node for Alpine Linux/OpenRC and Debian 12 or 13/systemd. It
 installs as a single static binary and runs directly on the VPS without Docker.
 
 This repository is the public release mirror for the canonical source in the
@@ -10,7 +10,7 @@ AGPL source and immutable `linux/amd64` and `linux/arm64` release artifacts.
 ## Support
 
 - Alpine Linux with OpenRC
-- Debian 12 with systemd
+- Debian 12 or 13 with systemd
 - `amd64` and `arm64`
 - Remnawave node contract `2.8.0`
 - Direct node telemetry, plugins, audit APIs, and Reality SNI health

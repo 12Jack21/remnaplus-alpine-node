@@ -25,6 +25,7 @@ reject() {
 
 require "$installer" '/etc/os-release'
 require "$installer" 'ID:-.*debian'
+require "$installer" '12\|13'
 require "$installer" '/run/systemd/system'
 require "$installer" 'systemctl enable --now vnstat'
 require "$installer" 'ip -o route show default'
@@ -53,6 +54,30 @@ PATH="$tmp/bin:$PATH" \
   >"$tmp/dry-run.out"
 grep -q '监听端口：2443' "$tmp/dry-run.out"
 grep -q 'systemctl enable --now vnstat' "$tmp/dry-run.out"
+
+mkdir -p "$tmp/systemd"
+for version in 12 13; do
+  printf 'ID=debian\nVERSION_ID=%s\nPRETTY_NAME="Debian GNU/Linux %s"\n' \
+    "$version" "$version" >"$tmp/os-release-$version"
+  PATH="$tmp/bin:$PATH" \
+    RNL_OS_RELEASE_FILE="$tmp/os-release-$version" \
+    RNL_SYSTEMD_RUNTIME_DIR="$tmp/systemd" \
+    RNL_BINARY_SHA256="$(printf 'a%.0s' {1..64})" \
+    bash "$installer" --install --dry-run --yes --skip-xray --port 2443 \
+    >"$tmp/debian-$version.out"
+done
+
+printf 'ID=debian\nVERSION_ID=11\nPRETTY_NAME="Debian GNU/Linux 11"\n' >"$tmp/os-release-11"
+if PATH="$tmp/bin:$PATH" \
+  RNL_OS_RELEASE_FILE="$tmp/os-release-11" \
+  RNL_SYSTEMD_RUNTIME_DIR="$tmp/systemd" \
+  RNL_BINARY_SHA256="$(printf 'a%.0s' {1..64})" \
+  bash "$installer" --install --dry-run --yes --skip-xray --port 2443 \
+  >"$tmp/debian-11.out" 2>&1; then
+  echo "Debian installer accepted unsupported Debian 11" >&2
+  exit 1
+fi
+grep -q 'Debian 12.*13' "$tmp/debian-11.out"
 
 if PATH="$tmp/bin:$PATH" RNL_BINARY_SHA256="$(printf 'a%.0s' {1..64})" \
   bash "$installer" --install --dry-run --yes --skip-xray --port 0 \

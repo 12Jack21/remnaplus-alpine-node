@@ -311,20 +311,29 @@ redirect_alpine() {
 }
 
 require_debian() {
-  if [ "$DRY_RUN" -eq 1 ]; then
+  local os_release_file="${RNL_OS_RELEASE_FILE:-/etc/os-release}"
+  local systemd_runtime_dir="${RNL_SYSTEMD_RUNTIME_DIR:-/run/systemd/system}"
+  if [ "$DRY_RUN" -eq 1 ] && [ -z "${RNL_OS_RELEASE_FILE:-}" ]; then
     return 0
   fi
-  if [ ! -r /etc/os-release ]; then
-    echo "无法确认操作系统；Debian Native 仅支持 Debian。" >&2
+  if [ ! -r "$os_release_file" ]; then
+    echo "无法确认操作系统；Debian Native 仅支持 Debian 12 或 13。" >&2
     exit 1
   fi
   # shellcheck disable=SC1091
-  source /etc/os-release
+  source "$os_release_file"
   if [ "${ID:-}" != "debian" ]; then
-    echo "不支持的系统：${PRETTY_NAME:-${ID:-unknown}}；请选择 Debian Native。" >&2
+    echo "不支持的系统：${PRETTY_NAME:-${ID:-unknown}}；Debian Native 仅支持 Debian 12 或 13。" >&2
     exit 1
   fi
-  if [ ! -d /run/systemd/system ]; then
+  case "${VERSION_ID:-}" in
+    12|13) ;;
+    *)
+      echo "不支持的 Debian 版本：${VERSION_ID:-unknown}；仅支持 Debian 12 或 13。" >&2
+      exit 1
+      ;;
+  esac
+  if [ ! -d "$systemd_runtime_dir" ]; then
     echo "Debian Native 需要 systemd。" >&2
     exit 1
   fi
