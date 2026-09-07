@@ -38,6 +38,11 @@ require "$unit" 'After=network-online.target vnstat.service'
 reject "$installer" 'rc-service|rc-update|/etc/init\.d|apk add|NAT'
 reject "$unit" 'openrc|rc-service'
 
+xray_installer="${repo_root}/scripts/install-xray.sh"
+require "$xray_installer" 'RNL_WORK_TMPDIR:-/var/tmp'
+require "$xray_installer" 'remnanode-xray\.XXXXXX'
+require "$xray_installer" "trap 'rm -rf --.*EXIT"
+
 mkdir -p "$tmp/bin"
 for command_name in apt-get systemctl vnstat ss ip; do
   command_path="$tmp/bin/$command_name"

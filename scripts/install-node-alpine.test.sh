@@ -37,6 +37,8 @@ assert_contains "$installer" 'rc-service vnstat (start|restart)'
 assert_contains "$installer" 'ip route.*default'
 assert_contains "$installer" 'vnstat --add -i'
 assert_contains "$installer" 'rc-update add remnawave-node default'
+assert_contains "${repo_root}/scripts/install-xray.sh" 'RNL_WORK_TMPDIR:-/var/tmp'
+assert_contains "${repo_root}/scripts/install-xray.sh" 'remnanode-xray\.XXXXXX'
 
 assert_contains "$upgrade" 'VERSION="1\.0\.4"'
 assert_contains "$upgrade" 'RNL_RELEASE_BASE_URL'

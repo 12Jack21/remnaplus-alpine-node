@@ -115,7 +115,7 @@ ensure_managed_core_link() {
   mv -f "$staged" "$active"
 }
 
-install_release_core() {
+install_release_core() (
   local arch="$1"
   local base_url="${XRAY_RELEASE_BASE_URL:-https://github.com/${UPSTREAM_REPO}/Xray-core/releases/download/${XRAY_CORE_VERSION}}"
   local archive_name="Xray-linux-${arch}.zip"
@@ -125,8 +125,11 @@ install_release_core() {
     echo "Xray ${XRAY_CORE_VERSION} requires a reviewed SHA-256 for ${arch}." >&2
     exit 1
   fi
+  local work_tmpdir="${RNL_WORK_TMPDIR:-/var/tmp}"
+  [ -d "$work_tmpdir" ] || mkdir -p "$work_tmpdir"
   local tmp
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d "${work_tmpdir%/}/remnanode-xray.XXXXXX")"
+  trap 'rm -rf -- "${tmp:-}"' EXIT
 
   rnl_msg xray_download "$XRAY_CORE_VERSION" "$archive_name"
   curl -fsSL "${base_url}/${archive_name}" -o "${tmp}/${archive_name}"
@@ -147,8 +150,7 @@ install_release_core() {
     install -m 0644 "${tmp}/${dat}" "/usr/local/share/xray/.${dat}.new.$$"
     mv -f "/usr/local/share/xray/.${dat}.new.$$" "/usr/local/share/xray/${dat}"
   done
-  rm -rf "$tmp"
-}
+)
 
 # ASN 前缀数据库（插件 asList 共享列表解析；对齐官方 2.8.0 的 /usr/local/share/asn）。
 # 未提供 ASN_DB_URL 时跳过；运行时缺失该文件则 asList 自动降级为空。
