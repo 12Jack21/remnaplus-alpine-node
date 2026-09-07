@@ -13,7 +13,8 @@ import (
 )
 
 const defaultEnvPath = "/etc/remnanode/node.env"
-const defaultServicePath = "/etc/init.d/remnawave-node"
+const defaultOpenRCServicePath = "/etc/init.d/remnawave-node"
+const defaultSystemdServicePath = "/etc/systemd/system/remnawave-node.service"
 
 type result struct {
 	level   string
@@ -40,7 +41,7 @@ func Run(args []string) int {
 
 	var results []result
 
-	results = append(results, checkOpenRCService())
+	results = append(results, checkServiceManager(defaultOpenRCServicePath, defaultSystemdServicePath))
 	results = append(results, checkCapNetAdmin())
 
 	cfg, cfgErr := loadConfig(envPath)
@@ -57,8 +58,9 @@ func Run(args []string) int {
 		results = append(results, checkGeoFiles(cfg.GeoDir)...)
 		results = append(results, checkASNDatabase(cfg.ASNDBPath)...)
 		results = append(results, checkPersistedStart(cfg.DataDir)...)
-		results = append(results, checkCommand("nft", "nftables 命令行（插件 IP 封禁）")...)
-		results = append(results, checkCommand("ss", "ss 命令（踢连接 drop-ips）")...)
+		usesSystemd := fileExists(defaultSystemdServicePath)
+		results = append(results, checkCommand("nft", "nftables 命令行（插件 IP 封禁）", usesSystemd)...)
+		results = append(results, checkCommand("ss", "ss 命令（踢连接 drop-ips）", usesSystemd)...)
 	}
 
 	exitCode := 0
@@ -108,26 +110,44 @@ func checkCapNetAdmin() result {
 	}
 }
 
-func checkOpenRCService() result {
-	data, err := os.ReadFile(defaultServicePath)
+func checkServiceManager(openRCPath, systemdPath string) result {
+	if data, err := os.ReadFile(systemdPath); err == nil {
+		content := string(data)
+		if strings.Contains(content, "ExecStart=/usr/local/bin/remnanode-lite") {
+			return result{level: "OK", title: "systemd service", detail: systemdPath + " 已安装"}
+		}
+		return result{
+			level:   "WARN",
+			title:   "systemd service",
+			detail:  systemdPath + " 不是预期的 systemd 服务文件",
+			fixHint: "重新运行固定版本 install-node.sh，然后 systemctl restart remnawave-node",
+		}
+	}
+
+	data, err := os.ReadFile(openRCPath)
 	if err != nil {
 		return result{
 			level:   "WARN",
-			title:   "OpenRC service",
-			detail:  defaultServicePath + " 未找到",
-			fixHint: "重新运行固定版本 install-node-alpine.sh 或 upgrade.sh 安装 OpenRC 服务",
+			title:   "Service manager",
+			detail:  "未找到 systemd 或 OpenRC 服务文件",
+			fixHint: "重新运行适用于当前系统的固定版本安装脚本",
 		}
 	}
 	content := string(data)
 	if strings.Contains(content, "#!/sbin/openrc-run") && strings.Contains(content, "remnawave-node-run") {
-		return result{level: "OK", title: "OpenRC service", detail: defaultServicePath + " 已安装"}
+		return result{level: "OK", title: "OpenRC service", detail: openRCPath + " 已安装"}
 	}
 	return result{
 		level:   "WARN",
 		title:   "OpenRC service",
-		detail:  defaultServicePath + " 不是预期的 OpenRC 服务文件",
+		detail:  openRCPath + " 不是预期的 OpenRC 服务文件",
 		fixHint: "重新运行固定版本 upgrade.sh 刷新 OpenRC 服务，然后 rc-service remnawave-node restart",
 	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func checkSecret(cfg config.Config) []result {
@@ -249,7 +269,7 @@ func checkASNDatabase(path string) []result {
 	return []result{{level: "OK", title: "ASN 数据库", detail: path}}
 }
 
-func checkCommand(name, purpose string) []result {
+func checkCommand(name, purpose string, usesSystemd bool) []result {
 	if path, err := exec.LookPath(name); err == nil {
 		return []result{{level: "OK", title: name, detail: path + "（" + purpose + "）"}}
 	}
@@ -257,10 +277,14 @@ func checkCommand(name, purpose string) []result {
 	if name == "ss" {
 		packageName = "iproute2"
 	}
+	fixHint := "Alpine: apk add --no-cache " + packageName
+	if usesSystemd {
+		fixHint = "Debian: apt-get install -y " + packageName
+	}
 	return []result{{
 		level:   "WARN",
 		title:   name,
 		detail:  "未安装（" + purpose + "）",
-		fixHint: "Alpine: apk add --no-cache " + packageName,
+		fixHint: fixHint,
 	}}
 }
