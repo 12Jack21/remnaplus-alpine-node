@@ -342,13 +342,13 @@ require_debian() {
 install_dependencies() {
   step "安装 Debian 运行依赖"
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "[dry-run] apt-get install ca-certificates curl tar gzip unzip iproute2 procps vnstat"
+    echo "[dry-run] apt-get install ca-certificates curl tar gzip unzip iproute2 nftables procps vnstat"
     return 0
   fi
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y --no-install-recommends \
-    ca-certificates curl tar gzip unzip iproute2 procps vnstat
+    ca-certificates curl tar gzip unzip iproute2 nftables procps vnstat
 }
 
 setup_vnstat() {

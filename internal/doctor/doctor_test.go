@@ -67,3 +67,13 @@ func TestCheckServiceManagerOpenRC(t *testing.T) {
 		t.Fatalf("unexpected OpenRC result: %#v", result)
 	}
 }
+
+func TestCommandPackageName(t *testing.T) {
+	t.Parallel()
+	if got := commandPackageName("nft"); got != "nftables" {
+		t.Fatalf("nft package = %q", got)
+	}
+	if got := commandPackageName("ss"); got != "iproute2" {
+		t.Fatalf("ss package = %q", got)
+	}
+}

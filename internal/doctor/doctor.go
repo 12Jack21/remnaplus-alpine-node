@@ -273,10 +273,7 @@ func checkCommand(name, purpose string, usesSystemd bool) []result {
 	if path, err := exec.LookPath(name); err == nil {
 		return []result{{level: "OK", title: name, detail: path + "（" + purpose + "）"}}
 	}
-	packageName := name
-	if name == "ss" {
-		packageName = "iproute2"
-	}
+	packageName := commandPackageName(name)
 	fixHint := "Alpine: apk add --no-cache " + packageName
 	if usesSystemd {
 		fixHint = "Debian: apt-get install -y " + packageName
@@ -287,4 +284,15 @@ func checkCommand(name, purpose string, usesSystemd bool) []result {
 		detail:  "未安装（" + purpose + "）",
 		fixHint: fixHint,
 	}}
+}
+
+func commandPackageName(name string) string {
+	switch name {
+	case "nft":
+		return "nftables"
+	case "ss":
+		return "iproute2"
+	default:
+		return name
+	}
 }
