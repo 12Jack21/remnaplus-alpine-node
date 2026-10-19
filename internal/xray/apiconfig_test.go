@@ -69,3 +69,30 @@ func TestGenerateAPIConfigTorrentBlocker(t *testing.T) {
 		t.Fatalf("expected at least 2 rules, got %d", len(rules))
 	}
 }
+
+func TestGenerateAPIConfigManagedWarpAddsProbe(t *testing.T) {
+	t.Parallel()
+
+	cfg := generateAPIConfig(map[string]any{
+		"inbounds": []any{},
+		"outbounds": []any{map[string]any{
+			"tag":      "WARP",
+			"protocol": "wireguard",
+			"settings": map[string]any{
+				"address": []any{"172.16.0.2/32"},
+				"peers":   []any{map[string]any{"endpoint": "162.159.192.1:2408"}},
+			},
+		}},
+		"routing": map[string]any{"rules": []any{map[string]any{"outboundTag": "direct"}}},
+	}, "remnawave-xtls-test", TorrentBlockerOptions{})
+
+	inbounds := arrayFrom(cfg["inbounds"])
+	if len(inbounds) < 2 || inbounds[1].(map[string]any)["tag"] != "REMNAWAVE_WARP_PROBE_INBOUND" {
+		t.Fatalf("WARP probe inbound missing: %#v", inbounds)
+	}
+	routing := cfg["routing"].(map[string]any)
+	rules := arrayFrom(routing["rules"])
+	if len(rules) < 3 || rules[1].(map[string]any)["outboundTag"] != "WARP" {
+		t.Fatalf("WARP probe route missing: %#v", rules)
+	}
+}

@@ -24,7 +24,7 @@ func TestRemnaPlusApprovedRouteContractIsExactAndWired(t *testing.T) {
 		"/node/stats/get-user-online-status", "/node/stats/get-accounting-snapshot", "/node/stats/get-users-stats",
 		"/node/stats/get-system-stats", "/node/stats/get-audit-log-chunk",
 		"/node/stats/get-audit-log-source-metadata", "/node/stats/clean-audit-logs",
-		"/node/stats/get-tcp-connections", "/node/stats/get-inbound-stats",
+		"/node/stats/get-tcp-connections", "/node/stats/get-forwarded-tcp-connections", "/node/stats/get-inbound-stats",
 		"/node/stats/get-outbound-stats", "/node/stats/get-all-outbounds-stats",
 		"/node/stats/get-all-inbounds-stats", "/node/stats/get-combined-stats",
 		"/node/stats/get-user-ip-list", "/node/stats/get-users-ip-list",
@@ -35,6 +35,7 @@ func TestRemnaPlusApprovedRouteContractIsExactAndWired(t *testing.T) {
 		"/node/plugin/sync", "/node/plugin/torrent-blocker/collect",
 		"/node/plugin/nftables/block-ips", "/node/plugin/nftables/unblock-ips",
 		"/node/plugin/nftables/recreate-tables",
+		"/node/vision/block-ip", "/node/vision/unblock-ip",
 	}
 	actual := append([]string(nil), approvedRoutes...)
 	sort.Strings(expected)
@@ -42,10 +43,6 @@ func TestRemnaPlusApprovedRouteContractIsExactAndWired(t *testing.T) {
 	if !reflect.DeepEqual(actual, expected) {
 		t.Fatalf("approved routes = %#v, want %#v", actual, expected)
 	}
-	if implementedRoutes[forwardedTCPRoute] {
-		t.Fatalf("forbidden Alpine forwarding telemetry route is implemented")
-	}
-
 	serverSource, err := os.ReadFile("../httpserver/server.go")
 	if err != nil {
 		t.Fatal(err)
@@ -54,9 +51,6 @@ func TestRemnaPlusApprovedRouteContractIsExactAndWired(t *testing.T) {
 		if !strings.Contains(string(serverSource), `"`+route+`"`) {
 			t.Fatalf("approved route %s is not wired in the HTTP server", route)
 		}
-	}
-	if strings.Contains(string(serverSource), forwardedTCPRoute) {
-		t.Fatalf("forbidden route %s is wired in the HTTP server", forwardedTCPRoute)
 	}
 }
 
@@ -116,11 +110,20 @@ func TestPublicContractDocumentStatesAlpineCapabilityBoundary(t *testing.T) {
 	}
 	text := string(raw)
 	for _, required := range []string{
-		"ALPINE_NATIVE", "STANDARD_DOCKER", "forwarding source", "forwarding target",
-		"HAProxy", forwardedTCPRoute, "dashboard node data",
+		"ALPINE_NATIVE", "STANDARD_DOCKER", "HAProxy", forwardedTCPRoute, "dashboard node data",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("contract document is missing %q", required)
 		}
+	}
+}
+
+func TestNativeWarpHealthRouteIsWired(t *testing.T) {
+	raw, err := os.ReadFile("../httpserver/server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"/warp/healthcheck"`) {
+		t.Fatal("native WARP health route is not wired")
 	}
 }

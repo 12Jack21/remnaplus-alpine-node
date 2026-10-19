@@ -39,10 +39,10 @@ func TestUpstreamProvenanceSeparatesTagAndCommit(t *testing.T) {
 		t.Fatal("upstream refs changed without updating the reviewed provenance boundary")
 	}
 	if lock.Comparison.ReportedNodeVersion != "3.3.2" || lock.Comparison.WireContractVersion != "3.2.3" ||
-		lock.Local.ReportedNodeVersion != "2.8.0" || lock.Local.ForwardingTelemetry {
-		t.Fatal("upstream comparison must not replace the local contract or forwarding boundary")
+		lock.Local.ReportedNodeVersion != "2.8.0" || !lock.Local.ForwardingTelemetry {
+		t.Fatal("upstream comparison must not replace the local contract or forwarding capability")
 	}
-	if !reflect.DeepEqual(lock.Local.RequiredExtensions, []string{"auditlog", "snihealth", "tcpstats", "vnstat", "accounting"}) {
+	if !reflect.DeepEqual(lock.Local.RequiredExtensions, []string{"auditlog", "snihealth", "tcpstats", "vnstat", "accounting", "forwarding", "vision", "warp"}) {
 		t.Fatal("local capability requirements changed")
 	}
 	foundLock := false

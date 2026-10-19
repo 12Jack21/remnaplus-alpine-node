@@ -213,6 +213,11 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) StartResponse {
 	defer m.lifecycleMu.Unlock()
 
 	fullConfig := generateAPIConfig(req.XrayConfig, m.xtlsSocket, m.torrentBlockerOptions())
+	if warpError, ok := fullConfig["__warpGuardError"].(string); ok && warpError != "" {
+		delete(fullConfig, "__warpGuardError")
+		log.Printf("xray/start rejected: %s", warpError)
+		return m.startResponse(false, &warpError)
+	}
 	fullConfigJSON := marshalConfigJSON(fullConfig)
 
 	m.mu.RLock()

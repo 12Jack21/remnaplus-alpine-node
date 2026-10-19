@@ -17,22 +17,28 @@ import (
 	"github.com/12Jack21/remnaplus-alpine-node/internal/bodylimit"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/config"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/connections"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/forwarding"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/nodehandler"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/plugin"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/secret"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/snihealth"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/stats"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/vision"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/warp"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/xray"
 )
 
 type Server struct {
-	httpServer       *http.Server
-	manager          *xray.Manager
-	statsService     *stats.Service
-	auditLogService  *auditlog.Service
-	sniHealthService *snihealth.Service
-	handlerService   *nodehandler.Service
-	pluginService    *plugin.Service
+	httpServer        *http.Server
+	manager           *xray.Manager
+	statsService      *stats.Service
+	auditLogService   *auditlog.Service
+	sniHealthService  *snihealth.Service
+	handlerService    *nodehandler.Service
+	pluginService     *plugin.Service
+	forwardingService *forwarding.HTTPService
+	visionService     *vision.Service
+	warpService       *warp.Service
 }
 
 func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator, manager *xray.Manager, pluginService *plugin.Service, dropper *connections.Dropper) (*Server, error) {
@@ -45,16 +51,21 @@ func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator
 	xrayPinger := snihealth.NewXrayPinger(cfg.XrayBin, nil)
 	probeEngine := snihealth.NewProbeEngine(snihealth.NativeProbeAdapters(xrayPinger), snihealth.DefaultProbeLimits(), time.Now)
 	server := &Server{
-		manager:          manager,
-		statsService:     stats.NewService(manager, pluginService, stats.NewAccountingSnapshotService(manager, filepath.Join(cfg.DataDir, "accounting-snapshot.json"))),
-		auditLogService:  auditlog.NewServiceForLogDir(cfg.LogDir),
-		sniHealthService: snihealth.NewService(manager, probeEngine.Probe, time.Now),
-		handlerService:   nodehandler.NewService(manager, dropper),
-		pluginService:    pluginService,
+		manager:           manager,
+		statsService:      stats.NewService(manager, pluginService, stats.NewAccountingSnapshotService(manager, filepath.Join(cfg.DataDir, "accounting-snapshot.json"))),
+		auditLogService:   auditlog.NewServiceForLogDir(cfg.LogDir),
+		sniHealthService:  snihealth.NewService(manager, probeEngine.Probe, time.Now),
+		handlerService:    nodehandler.NewService(manager, dropper),
+		pluginService:     pluginService,
+		forwardingService: forwarding.NewHTTPService(cfg.ForwardingConfigPath, cfg.ForwardingSocketPath),
+		visionService:     vision.NewService(manager),
+		warpService:       warp.NewService(manager, cfg.WarpProbePort),
 	}
 
 	protected := validator.Middleware(bodylimit.DecompressMiddleware(bodylimit.LimitMiddleware(http.HandlerFunc(server.handleNodeRoutes))))
 	mux.Handle("/node/", protected)
+	warpProtected := validator.Middleware(bodylimit.DecompressMiddleware(bodylimit.LimitMiddleware(http.HandlerFunc(server.handleWarpRoutes))))
+	mux.Handle("/warp/", warpProtected)
 
 	server.httpServer = &http.Server{
 		Addr:              cfg.HTTPAddr(),
@@ -67,6 +78,14 @@ func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator
 	}
 
 	return server, nil
+}
+
+func (s *Server) handleWarpRoutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet || r.URL.Path != "/warp/healthcheck" || s.warpService == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, envelope[warp.Response]{Response: s.warpService.Check(r.Context())})
 }
 
 func (s *Server) ListenAndServeTLS() error {
@@ -105,6 +124,12 @@ func (s *Server) handleNodeRoutes(w http.ResponseWriter, r *http.Request) {
 		s.statsService.HandleGetSystemStats(w, write)
 	case r.Method == http.MethodGet && path == "/node/stats/get-tcp-connections":
 		s.statsService.HandleGetTCPConnections(w, write)
+	case r.Method == http.MethodGet && path == "/node/stats/get-forwarded-tcp-connections":
+		if s.forwardingService == nil {
+			writeError(w, http.StatusInternalServerError, "forwarding telemetry service unavailable")
+			return
+		}
+		s.forwardingService.HandleGet(w, r, write)
 	case r.Method == http.MethodGet && path == "/node/stats/get-audit-log-chunk":
 		s.handleGetAuditLogChunk(w, r)
 	case r.Method == http.MethodGet && path == "/node/stats/get-audit-log-source-metadata":
@@ -165,6 +190,20 @@ func (s *Server) handleNodeRoutes(w http.ResponseWriter, r *http.Request) {
 		s.pluginService.HandleUnblockIPs(w, r, write)
 	case r.Method == http.MethodPost && path == "/node/plugin/nftables/recreate-tables":
 		s.pluginService.HandleRecreateTables(w, r, write)
+
+	// vision
+	case r.Method == http.MethodPost && path == "/node/vision/block-ip":
+		if s.visionService == nil {
+			writeError(w, http.StatusInternalServerError, "vision service unavailable")
+			return
+		}
+		s.visionService.HandleBlockIP(w, r, write)
+	case r.Method == http.MethodPost && path == "/node/vision/unblock-ip":
+		if s.visionService == nil {
+			writeError(w, http.StatusInternalServerError, "vision service unavailable")
+			return
+		}
+		s.visionService.HandleUnblockIP(w, r, write)
 
 	default:
 		http.NotFound(w, r)

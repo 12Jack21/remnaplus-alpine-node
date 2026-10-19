@@ -6,8 +6,7 @@ import (
 	"testing"
 )
 
-// approvedRoutes is the RemnaPlus 2.8.0 node contract plus native extensions,
-// excluding HAProxy forwarding telemetry by capability policy.
+// approvedRoutes is the RemnaPlus 2.8.0 node contract plus RemnaPlus extensions.
 var approvedRoutes = []string{
 	"/node/xray/start",
 	"/node/xray/stop",
@@ -15,6 +14,7 @@ var approvedRoutes = []string{
 	"/node/stats/get-user-online-status",
 	"/node/stats/get-accounting-snapshot",
 	"/node/stats/get-tcp-connections",
+	"/node/stats/get-forwarded-tcp-connections",
 	"/node/stats/get-audit-log-chunk",
 	"/node/stats/get-audit-log-source-metadata",
 	"/node/stats/clean-audit-logs",
@@ -42,6 +42,8 @@ var approvedRoutes = []string{
 	"/node/plugin/nftables/block-ips",
 	"/node/plugin/nftables/unblock-ips",
 	"/node/plugin/nftables/recreate-tables",
+	"/node/vision/block-ip",
+	"/node/vision/unblock-ip",
 }
 
 // implementedRoutes marks routes wired in this repository.
@@ -52,6 +54,7 @@ var implementedRoutes = map[string]bool{
 	"/node/stats/get-user-online-status":        true,
 	"/node/stats/get-accounting-snapshot":       true,
 	"/node/stats/get-tcp-connections":           true,
+	"/node/stats/get-forwarded-tcp-connections": true,
 	"/node/stats/get-audit-log-chunk":           true,
 	"/node/stats/get-audit-log-source-metadata": true,
 	"/node/stats/clean-audit-logs":              true,
@@ -79,6 +82,8 @@ var implementedRoutes = map[string]bool{
 	"/node/plugin/nftables/block-ips":           true,
 	"/node/plugin/nftables/unblock-ips":         true,
 	"/node/plugin/nftables/recreate-tables":     true,
+	"/node/vision/block-ip":                     true,
+	"/node/vision/unblock-ip":                   true,
 }
 
 func TestApprovedRoutesCoverage(t *testing.T) {

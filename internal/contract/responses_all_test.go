@@ -13,10 +13,12 @@ import (
 
 	"github.com/12Jack21/remnaplus-alpine-node/internal/auditlog"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/connections"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/forwarding"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/nodehandler"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/plugin"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/snihealth"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/stats"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/vision"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/xray"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/xtls"
 )
@@ -28,6 +30,7 @@ var responseShapeTests = map[string]func(t *testing.T){
 	"/node/stats/get-user-online-status":        testGetUserOnlineStatusResponseShape,
 	"/node/stats/get-accounting-snapshot":       testGetAccountingSnapshotResponseShape,
 	"/node/stats/get-tcp-connections":           testGetTCPConnectionsResponseShape,
+	"/node/stats/get-forwarded-tcp-connections": testGetForwardedTCPConnectionsResponseShape,
 	"/node/stats/get-audit-log-chunk":           testGetAuditLogChunkResponseShape,
 	"/node/stats/get-audit-log-source-metadata": testGetAuditLogSourceMetadataResponseShape,
 	"/node/stats/clean-audit-logs":              testCleanAuditLogsResponseShape,
@@ -55,6 +58,8 @@ var responseShapeTests = map[string]func(t *testing.T){
 	"/node/plugin/nftables/block-ips":           testPluginBlockIPsResponseShape,
 	"/node/plugin/nftables/unblock-ips":         testPluginUnblockIPsResponseShape,
 	"/node/plugin/nftables/recreate-tables":     testPluginRecreateTablesResponseShape,
+	"/node/vision/block-ip":                     testVisionBlockIPResponseShape,
+	"/node/vision/unblock-ip":                   testVisionUnblockIPResponseShape,
 }
 
 func TestApprovedResponseShapes(t *testing.T) {
@@ -179,6 +184,18 @@ func testGetTCPConnectionsResponseShape(t *testing.T) {
 	raw := rec.Body.Bytes()
 	assertJSONPath(t, raw, "response.collectedAt")
 	assertJSONPathArray(t, raw, "response.connections")
+}
+
+func testGetForwardedTCPConnectionsResponseShape(t *testing.T) {
+	service := forwarding.NewHTTPService(filepath.Join(t.TempDir(), "missing.tsv"), "")
+	req := httptest.NewRequest(http.MethodGet, "/node/stats/get-forwarded-tcp-connections?mappingNames=To_VMRL1", nil)
+	rec := httptest.NewRecorder()
+	service.HandleGet(rec, req, writeTestJSON)
+	raw := rec.Body.Bytes()
+	assertJSONPath(t, raw, "response.collectedAt")
+	assertJSONPathArray(t, raw, "response.connections")
+	assertJSONPathArray(t, raw, "response.diagnostics")
+	assertJSONPathArray(t, raw, "response.mappings")
 }
 
 func testSNIHealthStatusResponseShape(t *testing.T) {
@@ -530,6 +547,34 @@ func testPluginRecreateTablesResponseShape(t *testing.T) {
 	rec := httptest.NewRecorder()
 	service.HandleRecreateTables(rec, req, writeTestJSON)
 	assertJSONPath(t, rec.Body.Bytes(), "response.accepted")
+}
+
+type stubVisionRouter struct{}
+
+func (stubVisionRouter) RouterAddSourceIPRule(context.Context, string, string, string, bool) xtls.RouterResult {
+	return xtls.RouterResult{OK: true}
+}
+
+func (stubVisionRouter) RouterRemoveRuleByTag(context.Context, string) xtls.RouterResult {
+	return xtls.RouterResult{OK: true}
+}
+
+func testVisionBlockIPResponseShape(t *testing.T) {
+	service := vision.NewService(stubVisionRouter{})
+	req := httptest.NewRequest(http.MethodPost, "/node/vision/block-ip", strings.NewReader(`{"ip":"203.0.113.10"}`))
+	rec := httptest.NewRecorder()
+	service.HandleBlockIP(rec, req, writeTestJSON)
+	assertJSONPath(t, rec.Body.Bytes(), "response.success")
+	assertJSONPath(t, rec.Body.Bytes(), "response.error")
+}
+
+func testVisionUnblockIPResponseShape(t *testing.T) {
+	service := vision.NewService(stubVisionRouter{})
+	req := httptest.NewRequest(http.MethodPost, "/node/vision/unblock-ip", strings.NewReader(`{"ip":"203.0.113.10"}`))
+	rec := httptest.NewRecorder()
+	service.HandleUnblockIP(rec, req, writeTestJSON)
+	assertJSONPath(t, rec.Body.Bytes(), "response.success")
+	assertJSONPath(t, rec.Body.Bytes(), "response.error")
 }
 
 type stubStatsProvider struct{}

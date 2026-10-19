@@ -1,15 +1,15 @@
-# RemnaPlus Alpine Node Contract
+# RemnaPlus Native Go Node Contract
 
-This repository implements the `ALPINE_NATIVE` node runtime for RemnaPlus. The dashboard persists the runtime in dashboard node data; operators and backend services must not infer it from a reported node version. `STANDARD_DOCKER` nodes continue to use the TypeScript Remnanode container.
+This repository implements the native Go node runtime for RemnaPlus on Alpine/OpenRC and Debian/systemd. The dashboard persists the runtime in dashboard node data; operators and backend services must not infer it from a reported node version. `STANDARD_DOCKER` nodes continue to use the TypeScript Remnanode container.
 
-The Alpine runtime supports the approved RemnaPlus node API, including Xray lifecycle and statistics, user and inbound management, plugins, direct TCP observations, bounded audit-log access, native vnStat telemetry, and Reality SNI health probes.
+The native runtime supports the approved RemnaPlus node API, including Xray lifecycle and statistics, user and inbound management, plugins, Vision IP rules, direct TCP observations, bounded audit-log access, native vnStat telemetry, WARP health, and Reality SNI health probes.
 
-## Forwarding Exclusion
+## Forwarding telemetry
 
-An Alpine node cannot be a forwarding source or a forwarding target. It does not install the middle-forward stack, mount an HAProxy socket, or publish HAProxy forwarding telemetry. The route `/node/stats/get-forwarded-tcp-connections` is intentionally absent.
+Native nodes expose `/node/stats/get-forwarded-tcp-connections` when the host forwarding paths are configured. The process reads `/etc/middle-forward/mappings.tsv` and `/run/middle-forward/haproxy.sock` directly, with the same TCP PROXY-protocol mapping and HAProxy stick-table diagnostics as the Docker node. Native installation does not silently install HAProxy; operators must deploy the forwarding producer and set `MIDDLE_FORWARD_TELEMETRY=1` with the corresponding host paths.
 
-The dashboard enforces this boundary when forwarding links are created or updated and before a disabled node changes to `ALPINE_NATIVE`. Legacy links involving an Alpine node are excluded defensively from telemetry collection.
+The dashboard may use a native node as a forwarding source or target after the host forwarding prerequisites are installed. Missing or stale forwarding paths produce scoped telemetry diagnostics rather than attributing traffic silently.
 
 ## Runtime Selection
 
-New nodes default to `STANDARD_DOCKER`. An operator may select `ALPINE_NATIVE` during creation or change a disabled, unlinked node later. Runtime-specific installation instructions are generated from the pinned Alpine release repository and tag returned by dashboard metadata.
+New nodes default to `STANDARD_DOCKER`. An operator may select `ALPINE_NATIVE` or `DEBIAN_NATIVE` during creation, or change a disabled node later. Runtime-specific installation instructions are generated from the pinned native release repository and tag returned by dashboard metadata.

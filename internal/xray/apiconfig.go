@@ -1,6 +1,9 @@
 package xray
 
 import (
+	"os"
+	"strconv"
+
 	"github.com/12Jack21/remnaplus-alpine-node/internal/netadmin"
 )
 
@@ -19,19 +22,55 @@ type TorrentBlockerOptions struct {
 
 func generateAPIConfig(input map[string]any, xtlsSocket string, torrent TorrentBlockerOptions) map[string]any {
 	result := cloneMap(input)
+	outbounds, hasWarp, err := guardedOutbounds(arrayFrom(result["outbounds"]))
+	if err != nil {
+		// The start path reports configuration errors through the normal Xray
+		// response; keep this helper panic-free for callers that only inspect
+		// generated configuration in tests.
+		result["__warpGuardError"] = err.Error()
+		outbounds = arrayFrom(result["outbounds"])
+	}
 
 	result["stats"] = map[string]any{}
 	result["api"] = map[string]any{
 		"services": []any{"HandlerService", "StatsService", "RoutingService"},
 		"tag":      apiTag,
 	}
-	result["inbounds"] = append(
-		[]any{apiInbound(xtlsSocket)},
-		arrayFrom(result["inbounds"])...,
-	)
-	result["outbounds"] = arrayFrom(result["outbounds"])
+	inbounds := append([]any{apiInbound(xtlsSocket)}, arrayFrom(result["inbounds"])...)
+	if hasWarp {
+		probePort := 61001
+		if value := os.Getenv("WARP_PROBE_PORT"); value != "" {
+			if parsed, parseErr := strconv.Atoi(value); parseErr == nil && parsed > 0 && parsed <= 65535 {
+				probePort = parsed
+			}
+		}
+		inbounds = append([]any{inbounds[0], map[string]any{
+			"tag":      "REMNAWAVE_WARP_PROBE_INBOUND",
+			"listen":   "127.0.0.1",
+			"port":     probePort,
+			"protocol": "socks",
+			"settings": map[string]any{"auth": "noauth", "udp": false},
+		}}, inbounds[1:]...)
+	}
+	result["inbounds"] = inbounds
+	result["outbounds"] = outbounds
 	result["policy"] = policyFrom(result["policy"], netadmin.HasCapNetAdmin())
 	result["routing"] = routingFrom(result["routing"])
+	if hasWarp {
+		routing, _ := result["routing"].(map[string]any)
+		rules := arrayFrom(routing["rules"])
+		probeRule := map[string]any{
+			"inboundTag":  []any{"REMNAWAVE_WARP_PROBE_INBOUND"},
+			"outboundTag": "WARP",
+		}
+		if len(rules) == 0 {
+			rules = []any{map[string]any{}, probeRule}
+		} else {
+			rules = append(rules[:1], append([]any{probeRule}, rules[1:]...)...)
+		}
+		routing["rules"] = rules
+		result["routing"] = routing
+	}
 
 	if torrent.Enabled {
 		webhookURL := buildWebhookURL(torrent.SocketPath)
@@ -86,6 +125,11 @@ func generateAPIConfig(input map[string]any, xtlsSocket string, torrent TorrentB
 	}
 
 	return result
+}
+
+func guardedOutbounds(outbounds []any) ([]any, bool, error) {
+	guarded, hasWarp, err := guardWarpOutbounds(outbounds)
+	return guarded, hasWarp, err
 }
 
 func buildWebhookURL(socketPath string) string {

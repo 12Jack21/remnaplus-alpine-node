@@ -13,11 +13,11 @@ AGPL source and immutable `linux/amd64` and `linux/arm64` release artifacts.
 - Debian 12 or 13 with systemd
 - `amd64` and `arm64`
 - Remnawave node contract `2.8.0`
-- Direct node telemetry, plugins, audit APIs, and Reality SNI health
+- Direct node telemetry, plugins, audit APIs, forwarding telemetry, WARP health, and Reality SNI health
 
-Native nodes cannot be forwarding sources or targets and do not expose HAProxy
-forwarding telemetry. Debian VPS nodes may still use the standard Docker
-Remnanode when the native runtime is not selected.
+Native nodes read the forwarding producer's host paths directly when
+`MIDDLE_FORWARD_TELEMETRY=1` is configured. Debian VPS nodes may still use the
+standard Docker Remnanode when the native runtime is not selected.
 
 ## Install
 

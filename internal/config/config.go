@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -19,6 +20,9 @@ const (
 	defaultDataDir            = "/var/lib/remnanode"
 	defaultInternalSocketPath = "/run/remnanode/internal.sock"
 	defaultASNDBPath          = "/usr/local/share/asn/asn-prefixes.bin"
+	defaultForwardingEtcMount = "/etc/middle-forward"
+	defaultForwardingRunMount = "/run/middle-forward"
+	defaultWarpProbePort      = 61001
 )
 
 // ResolveEnvPath returns the first existing env file path, preferring production default.
@@ -45,6 +49,9 @@ type Config struct {
 	DisableHashedSetCheck bool
 	LowMemory             bool
 	BodyLimitMB           int
+	ForwardingConfigPath  string
+	ForwardingSocketPath  string
+	WarpProbePort         int
 }
 
 func Load(dotenvPath string) (Config, error) {
@@ -74,6 +81,9 @@ func Load(dotenvPath string) (Config, error) {
 		"DISABLE_HASHED_SET_CHECK",
 		"LOW_MEMORY",
 		"BODY_LIMIT_MB",
+		"MIDDLE_FORWARD_ETC_MOUNT",
+		"MIDDLE_FORWARD_RUN_MOUNT",
+		"WARP_PROBE_PORT",
 	} {
 		if value, ok := os.LookupEnv(key); ok && strings.TrimSpace(value) != "" {
 			values[key] = value
@@ -120,6 +130,9 @@ func Load(dotenvPath string) (Config, error) {
 		DisableHashedSetCheck: optionalBool(values, "DISABLE_HASHED_SET_CHECK", false),
 		LowMemory:             optionalBool(values, "LOW_MEMORY", false),
 		BodyLimitMB:           optionalIntDefault(values, "BODY_LIMIT_MB", 0),
+		ForwardingConfigPath:  filepath.Join(optionalString(values, "MIDDLE_FORWARD_ETC_MOUNT", defaultForwardingEtcMount), "mappings.tsv"),
+		ForwardingSocketPath:  filepath.Join(optionalString(values, "MIDDLE_FORWARD_RUN_MOUNT", defaultForwardingRunMount), "haproxy.sock"),
+		WarpProbePort:         optionalIntDefault(values, "WARP_PROBE_PORT", defaultWarpProbePort),
 	}, nil
 }
 

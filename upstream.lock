@@ -23,8 +23,8 @@
   "local": {
     "reportedNodeVersion": "2.8.0",
     "dashboardWireContractVersion": "2.7.0",
-    "requiredExtensions": ["auditlog", "snihealth", "tcpstats", "vnstat", "accounting"],
-    "forwardingTelemetry": false
+    "requiredExtensions": ["auditlog", "snihealth", "tcpstats", "vnstat", "accounting", "forwarding", "vision", "warp"],
+    "forwardingTelemetry": true
   },
   "units": [
     {

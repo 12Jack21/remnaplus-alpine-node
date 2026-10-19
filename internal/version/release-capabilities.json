@@ -2,6 +2,7 @@
   "contractVersion": "2.8.0",
   "capabilities": [
     "audit-log",
+    "forwarding-telemetry",
     "host-vnstat",
     "nftables",
     "openrc",
@@ -9,6 +10,7 @@
     "reality-sni",
     "systemd",
     "tcp-history",
+    "vision-ip-rules",
     "warp",
     "xray-management"
   ]
