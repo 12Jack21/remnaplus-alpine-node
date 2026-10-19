@@ -10,6 +10,7 @@ import (
 
 	router "github.com/xtls/xray-core/app/router"
 	routercommand "github.com/xtls/xray-core/app/router/command"
+	"github.com/xtls/xray-core/common/geodata"
 	"github.com/xtls/xray-core/common/serial"
 	"google.golang.org/grpc"
 )
@@ -42,9 +43,11 @@ func (r *RouterAPI) AddSourceIPRule(ctx context.Context, ruleTag, outbound, ip s
 	_, err := r.client.AddRule(ctx, &routercommand.AddRuleRequest{
 		Config: serial.ToTypedMessage(&router.Config{
 			Rule: []*router.RoutingRule{{
-				RuleTag:     ruleTag,
-				TargetTag:   &router.RoutingRule_Tag{Tag: outbound},
-				SourceGeoip: []*router.GeoIP{{Cidr: []*router.CIDR{{Ip: parsed, Prefix: prefix}}}},
+				RuleTag:   ruleTag,
+				TargetTag: &router.RoutingRule_Tag{Tag: outbound},
+				SourceIp: []*geodata.IPRule{{Value: &geodata.IPRule_Custom{
+					Custom: &geodata.CIDRRule{Cidr: &geodata.CIDR{Ip: parsed, Prefix: prefix}},
+				}}},
 			}},
 		}),
 		ShouldAppend: appendRule,

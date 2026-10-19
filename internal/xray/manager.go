@@ -30,6 +30,7 @@ type Options struct {
 	InternalRESTToken  string
 	DisableHashCheck   bool
 	LowMemory          bool
+	WarpProbePort      int
 }
 
 type TorrentBlockerConfigProvider interface {
@@ -50,6 +51,7 @@ type Manager struct {
 	xtlsSocket       string
 	disableHashCheck bool
 	lowMemory        bool
+	warpProbePort    int
 	torrentBlocker   TorrentBlockerConfigProvider
 	coreLoader       *coreLoader
 	geodataLoader    *geodataLoader
@@ -140,6 +142,7 @@ func NewManager(opts Options) (*Manager, error) {
 		xtlsSocket:       socket,
 		disableHashCheck: opts.DisableHashCheck,
 		lowMemory:        opts.LowMemory,
+		warpProbePort:    opts.WarpProbePort,
 		coreLoader:       newCoreLoader(opts.XrayBin),
 		geodataLoader:    newGeodataLoader(opts.GeoDir),
 	}
@@ -212,7 +215,7 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) StartResponse {
 	}
 	defer m.lifecycleMu.Unlock()
 
-	fullConfig := generateAPIConfig(req.XrayConfig, m.xtlsSocket, m.torrentBlockerOptions())
+	fullConfig := generateAPIConfig(req.XrayConfig, m.xtlsSocket, m.torrentBlockerOptions(), m.warpProbePort)
 	if warpError, ok := fullConfig["__warpGuardError"].(string); ok && warpError != "" {
 		delete(fullConfig, "__warpGuardError")
 		log.Printf("xray/start rejected: %s", warpError)

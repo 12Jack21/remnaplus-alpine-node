@@ -89,6 +89,7 @@ func main() {
 		InternalRESTToken:  cfg.InternalRESTToken,
 		DisableHashCheck:   cfg.DisableHashedSetCheck,
 		LowMemory:          cfg.LowMemory,
+		WarpProbePort:      cfg.WarpProbePort,
 	})
 	if err != nil {
 		log.Fatalf("initialize Xray manager: %v", err)

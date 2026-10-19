@@ -20,7 +20,7 @@ type TorrentBlockerOptions struct {
 	RESTToken       string
 }
 
-func generateAPIConfig(input map[string]any, xtlsSocket string, torrent TorrentBlockerOptions) map[string]any {
+func generateAPIConfig(input map[string]any, xtlsSocket string, torrent TorrentBlockerOptions, configuredProbePort ...int) map[string]any {
 	result := cloneMap(input)
 	outbounds, hasWarp, err := guardedOutbounds(arrayFrom(result["outbounds"]))
 	if err != nil {
@@ -43,6 +43,9 @@ func generateAPIConfig(input map[string]any, xtlsSocket string, torrent TorrentB
 			if parsed, parseErr := strconv.Atoi(value); parseErr == nil && parsed > 0 && parsed <= 65535 {
 				probePort = parsed
 			}
+		}
+		if len(configuredProbePort) > 0 && configuredProbePort[0] > 0 && configuredProbePort[0] <= 65535 {
+			probePort = configuredProbePort[0]
 		}
 		inbounds = append([]any{inbounds[0], map[string]any{
 			"tag":      "REMNAWAVE_WARP_PROBE_INBOUND",

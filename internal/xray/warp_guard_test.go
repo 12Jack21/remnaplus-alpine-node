@@ -64,3 +64,20 @@ func TestGuardWarpOutboundsRejectsIPv6Peer(t *testing.T) {
 		t.Fatal("IPv6 peer unexpectedly accepted")
 	}
 }
+
+func TestWarpProbeUsesLoadedConfigurationPort(t *testing.T) {
+	t.Setenv("WARP_PROBE_PORT", "61001")
+	config := generateAPIConfig(map[string]any{
+		"outbounds": []any{testWarpOutbound("162.159.192.1:2408")},
+	}, "test-socket", TorrentBlockerOptions{}, 61234)
+	for _, item := range config["inbounds"].([]any) {
+		inbound := item.(map[string]any)
+		if inbound["tag"] == "REMNAWAVE_WARP_PROBE_INBOUND" {
+			if inbound["port"] != 61234 {
+				t.Fatalf("probe port = %v", inbound["port"])
+			}
+			return
+		}
+	}
+	t.Fatal("WARP probe inbound missing")
+}
