@@ -1,8 +1,10 @@
 package xray
 
 import (
-	"fmt"
 	"sort"
+	"strconv"
+	"strings"
+	"unicode/utf16"
 )
 
 // HashedSet mirrors @remnawave/hashed-set: XOR of per-string djb2Dual hashes.
@@ -46,14 +48,24 @@ func (s *HashedSet) Size() int {
 }
 
 func (s *HashedSet) Hash64String() string {
-	return fmt.Sprintf("%08x%08x", s.hashHigh, s.hashLow)
+	// JavaScript XOR leaves signed int32 values. The dashboard formats each
+	// signed word with toString(16).padStart(8, '0'), including a possible '-'.
+	word := func(value uint32) string {
+		text := strconv.FormatInt(int64(int32(value)), 16)
+		if len(text) < 8 {
+			text = strings.Repeat("0", 8-len(text)) + text
+		}
+		return text
+	}
+	return word(s.hashHigh) + word(s.hashLow)
 }
 
 func djb2Dual(value string) (high, low uint32) {
 	high = 5381
 	low = 5387
-	for i := 0; i < len(value); i++ {
-		char := uint32(value[i])
+	// charCodeAt hashes UTF-16 code units, rather than UTF-8 bytes.
+	for _, unit := range utf16.Encode([]rune(value)) {
+		char := uint32(unit)
 		high = (high<<5 + high + char)
 		low = (low<<6 + low + char*37)
 	}

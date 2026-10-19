@@ -11,14 +11,17 @@ func TestHashedSetMatchesReference(t *testing.T) {
 		want  string
 	}{
 		{"empty", nil, "0000000000000000"},
-		{"single uuid", []string{"66ad4540-b58c-4ad2-9926-ea63445a9b57"}, "75ccc662b84d9abc"},
+		// Values captured from the dashboard's installed @remnawave/hashed-set.
+		{"single uuid", []string{"66ad4540-b58c-4ad2-9926-ea63445a9b57"}, "75ccc662-47b26544"},
+		{"utf16 surrogate pair", []string{"😀"}, "00762822096ad59c"},
+		{"unicode", []string{"用户"}, "0068e6a405b61d46"},
 		{
 			"two uuids",
 			[]string{
 				"66ad4540-b58c-4ad2-9926-ea63445a9b57",
 				"a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 			},
-			"fb09473ff4fa709f",
+			"-4f6b8c1-b058f61",
 		},
 	}
 
@@ -31,6 +34,23 @@ func TestHashedSetMatchesReference(t *testing.T) {
 				t.Fatalf("Hash64String() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestHashedSetSignedWordFormatting(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		high, low uint32
+		want      string
+	}{
+		{0xaa980a8d, 0xf2d5ead1, "-5567f573-d2a152f"}, // ShanDun-DE incident
+		{1, 0xffffffff, "00000001000000-1"},
+		{0x80000000, 0x7fffffff, "-800000007fffffff"},
+	} {
+		set := &HashedSet{hashHigh: tc.high, hashLow: tc.low}
+		if got := set.Hash64String(); got != tc.want {
+			t.Fatalf("Hash64String() = %q, want dashboard encoding %q", got, tc.want)
+		}
 	}
 }
 
@@ -79,7 +99,7 @@ func TestIsNeedRestartCore(t *testing.T) {
 	if manager.isNeedRestartCoreLocked(ConfigHash{
 		EmptyConfig: "base-hash",
 		Inbounds: []InboundHash{
-			{Tag: "in-1", Hash: hash64FromItems([]string{"uuid-1"})},
+			{Tag: "in-1", Hash: "214b0c7a-7926c52c"}, // dashboard reference, not Go-generated
 		},
 	}) {
 		t.Fatal("expected no restart for unchanged hash")
