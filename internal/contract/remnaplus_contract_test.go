@@ -123,7 +123,7 @@ func TestNativeWarpHealthRouteIsWired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"/warp/healthcheck"`) {
+	if !strings.Contains(string(raw), `"/node/warp/healthcheck"`) {
 		t.Fatal("native WARP health route is not wired")
 	}
 }

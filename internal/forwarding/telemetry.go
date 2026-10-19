@@ -248,6 +248,11 @@ func querySocket(socketPath, tableName string) (string, error) {
 	if _, err := io.WriteString(connection, "show table "+tableName+"\n"); err != nil {
 		return "", fmt.Errorf("HAProxy socket write failed: %w", err)
 	}
+	if unix, ok := connection.(*net.UnixConn); ok {
+		if err := unix.CloseWrite(); err != nil {
+			return "", fmt.Errorf("HAProxy socket half-close failed: %w", err)
+		}
+	}
 	reader := bufio.NewReader(io.LimitReader(connection, maxResponseBytes+1))
 	data, err := io.ReadAll(reader)
 	if err != nil {

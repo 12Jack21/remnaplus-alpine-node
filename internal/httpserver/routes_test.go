@@ -15,8 +15,32 @@ import (
 	"github.com/12Jack21/remnaplus-alpine-node/internal/auditlog"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/snihealth"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/stats"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/warp"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/xray"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/xtls"
 )
+
+func TestWarpHealthUsesDashboardContractPath(t *testing.T) {
+	manager, err := xray.NewManager(xray.Options{XrayBin: "missing-canary-core"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{warpService: warp.NewService(manager, 61001)}
+	recorder := httptest.NewRecorder()
+	server.handleWarpRoutes(recorder, httptest.NewRequest(http.MethodGet, "/node/warp/healthcheck", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body struct {
+		Response warp.Response `json:"response"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Response.State != "not-configured" {
+		t.Fatalf("state=%s", body.Response.State)
+	}
+}
 
 type failingUsersStatsProvider struct{}
 

@@ -1,10 +1,55 @@
 package forwarding
 
 import (
+	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestSocketQueryHalfClosesBeforeReadingHAProxyResponse(t *testing.T) {
+	directory, err := os.MkdirTemp("/tmp", "mf-socket-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	path := filepath.Join(directory, "haproxy.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	finished := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			finished <- err
+			return
+		}
+		defer conn.Close()
+		command, err := io.ReadAll(conn)
+		if err == nil && string(command) != "show table mf_test\n" {
+			err = fmt.Errorf("unexpected command %q", command)
+		}
+		if err == nil {
+			_, err = io.WriteString(conn, "# table: mf_test\n0x1: key=203.0.113.10 conn_cur=7\n")
+		}
+		finished <- err
+	}()
+	response, err := querySocket(path, "mf_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+	rows, err := ParseHAProxyStickTable("test", response)
+	if err != nil || len(rows) != 1 || rows[0].ConnectionCount != 7 {
+		t.Fatalf("rows=%v err=%v", rows, err)
+	}
+}
 
 func TestParseConfiguredProxyMappings(t *testing.T) {
 	content := "version\tname\tprotocol\tsource_ip_mode\tlisten_port\ttarget_ip\ttarget_port\tenabled\n" +

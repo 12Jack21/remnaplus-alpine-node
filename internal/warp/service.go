@@ -2,10 +2,12 @@ package warp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -30,6 +32,9 @@ type Service struct {
 }
 
 func NewService(manager *xray.Manager, port int) *Service {
+	if port == 0 {
+		port = 61001
+	}
 	return &Service{manager: manager, port: port}
 }
 
@@ -83,11 +88,12 @@ func (s *Service) Check(ctx context.Context) Response {
 			message = message[:240]
 		}
 		result.Reason = &message
+		result.LatencyMS = nil
 		return result
 	}
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(line, "warp=") {
-			value := strings.TrimPrefix(line, "warp=")
+			value := strings.TrimSpace(strings.TrimPrefix(line, "warp="))
 			if value == "off" || value == "on" || value == "plus" {
 				result.ObservedWARP = &value
 			}
@@ -111,13 +117,16 @@ func (s *Service) fetch(ctx context.Context) (string, error) {
 	if port < 1 || port > 65535 {
 		return "", fmt.Errorf("invalid WARP probe port")
 	}
-	dialer, err := proxy.SOCKS5("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), nil, proxy.Direct)
+	dialer, err := proxy.SOCKS5("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), nil, &net.Dialer{Timeout: 8 * time.Second})
 	if err != nil {
 		return "", err
 	}
-	transport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-		return dialer.Dial(network, address)
-	}}
+	contextDialer, ok := dialer.(proxy.ContextDialer)
+	if !ok {
+		return "", fmt.Errorf("warp-proxy-context-unavailable")
+	}
+	transport := &http.Transport{DialContext: contextDialer.DialContext}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 8 * time.Second}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
@@ -127,7 +136,10 @@ func (s *Service) fetch(ctx context.Context) (string, error) {
 	request.Header.Set("User-Agent", "Remnawave-WARP-Health/1")
 	response, err := client.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("warp-probe-timeout: %w", err)
+		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
+			return "", errors.New("warp-probe-timeout")
+		}
+		return "", fmt.Errorf("warp-probe-failed: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {

@@ -65,7 +65,7 @@ func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator
 	protected := validator.Middleware(bodylimit.DecompressMiddleware(bodylimit.LimitMiddleware(http.HandlerFunc(server.handleNodeRoutes))))
 	mux.Handle("/node/", protected)
 	warpProtected := validator.Middleware(bodylimit.DecompressMiddleware(bodylimit.LimitMiddleware(http.HandlerFunc(server.handleWarpRoutes))))
-	mux.Handle("/warp/", warpProtected)
+	mux.Handle("/node/warp/", warpProtected)
 
 	server.httpServer = &http.Server{
 		Addr:              cfg.HTTPAddr(),
@@ -81,7 +81,7 @@ func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator
 }
 
 func (s *Server) handleWarpRoutes(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet || r.URL.Path != "/warp/healthcheck" || s.warpService == nil {
+	if r.Method != http.MethodGet || r.URL.Path != "/node/warp/healthcheck" || s.warpService == nil {
 		http.NotFound(w, r)
 		return
 	}

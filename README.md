@@ -25,7 +25,7 @@ Create an `ALPINE_NATIVE` node in the RemnaPlus dashboard and use the pinned
 Chinese or English install command shown there. Both entry points run the same
 installer engine; only operator-facing messages differ.
 
-The current public release is `v1.0.3`. Source `v1.0.4` is a canary candidate
+The current public release is `v1.0.3`. Source `v1.0.5` is a canary candidate
 and must not be installed from GitHub until its immutable publication gate
 passes. Dashboard launchers request the Secret Key separately so credentials
 are not embedded in a long pasted command.

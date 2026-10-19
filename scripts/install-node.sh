@@ -2,7 +2,7 @@
 # RemnaPlus Debian/systemd native installer
 set -euo pipefail
 
-VERSION="1.0.4"
+VERSION="1.0.5"
 RNL_LANG="${RNL_LANG:-zh}"
 export RNL_LANG
 PREFIX="/usr/local/bin"
