@@ -63,11 +63,13 @@ type Manager struct {
 	currentConfig    map[string]any
 	// currentConfigJSON caches the serialized form served via the internal
 	// get-config socket, so each rw-core poll avoids a full re-marshal.
-	currentConfigJSON []byte
-	emptyConfigHash   string
-	inboundHashes     map[string]*HashedSet
-	inboundTags       map[string]struct{}
-	process           *processState
+	currentConfigJSON       []byte
+	runningConfigJSON       string
+	runningConfigCapturedAt string
+	emptyConfigHash         string
+	inboundHashes           map[string]*HashedSet
+	inboundTags             map[string]struct{}
+	process                 *processState
 }
 
 type processState struct {
@@ -290,6 +292,8 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) StartResponse {
 	m.mu.Lock()
 	if started {
 		m.xrayOnline = true
+		m.runningConfigJSON = string(fullConfigJSON)
+		m.runningConfigCapturedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		m.mu.Unlock()
 		// Refresh once per successful core (re)start; rw-core may have been upgraded.
 		m.refreshVersion()
@@ -612,6 +616,8 @@ func tailLogFile(path string, maxLines int) string {
 }
 
 func (m *Manager) stopProcessLocked(clearConfig bool) error {
+	m.runningConfigJSON = ""
+	m.runningConfigCapturedAt = ""
 	process := m.process
 	if process == nil {
 		m.xrayOnline = false

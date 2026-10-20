@@ -106,6 +106,11 @@ func (s *Server) handleNodeRoutes(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	// xray
+	case r.Method == http.MethodGet && path == "/node/xray/running-config":
+		w.Header().Set("Cache-Control", "no-store")
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		writeJSON(w, http.StatusOK, envelope[xray.RunningConfigResponse]{Response: s.manager.RunningConfig(ctx)})
 	case r.Method == http.MethodGet && path == "/node/xray/healthcheck":
 		writeJSON(w, http.StatusOK, envelope[xray.HealthResponse]{Response: s.manager.Health()})
 	case (r.Method == http.MethodPost || r.Method == http.MethodGet) && path == "/node/xray/stop":
