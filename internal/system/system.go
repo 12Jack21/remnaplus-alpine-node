@@ -38,6 +38,8 @@ type Info struct {
 }
 
 type Stats struct {
+	ResourceStats
+
 	MemoryFree       uint64              `json:"memoryFree"`
 	MemoryUsed       uint64              `json:"memoryUsed"`
 	Uptime           float64             `json:"uptime"`
@@ -94,6 +96,7 @@ func GetStatsContext(ctx context.Context) Stats {
 		totalBytes = &value
 	}
 	return Stats{
+		ResourceStats:    ResourcesSnapshot(),
 		MemoryFree:       free,
 		MemoryUsed:       used,
 		Uptime:           uptime(),

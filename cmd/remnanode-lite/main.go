@@ -115,6 +115,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	system.StartResources(ctx)
 
 	unixServer := &unixconfig.Server{
 		Path:     cfg.InternalSocketPath,
