@@ -137,7 +137,9 @@ func (collector *resourceCollector) sample(now time.Time) {
 		}
 	}
 	if !now.Before(collector.nextDiskAt) {
-		collector.nextDiskAt = now.Add(30 * time.Second)
+		// Match the CPU cadence so the dashboard's root filesystem tile does
+		// not sit unchanged between 30-second snapshots.
+		collector.nextDiskAt = now.Add(5 * time.Second)
 		var stat unix.Statfs_t
 		collector.snapshot.Disk = nil
 		if err := unix.Statfs("/", &stat); err != nil || stat.Bsize <= 0 {
