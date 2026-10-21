@@ -5,6 +5,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -35,6 +36,9 @@ type Info struct {
 	Type              string   `json:"type"`
 	Version           string   `json:"version"`
 	NetworkInterfaces []string `json:"networkInterfaces"`
+	OsName            *string  `json:"osName"`
+	Virtualization    *string  `json:"virtualization"`
+	SwapTotal         *uint64  `json:"swapTotal,omitempty"`
 }
 
 type Stats struct {
@@ -42,6 +46,11 @@ type Stats struct {
 
 	MemoryFree       uint64              `json:"memoryFree"`
 	MemoryUsed       uint64              `json:"memoryUsed"`
+	SwapTotal        *uint64             `json:"swapTotal"`
+	SwapFree         *uint64             `json:"swapFree"`
+	SwapUsed         *uint64             `json:"swapUsed"`
+	ProcessCount     *int                `json:"processCount"`
+	UDPConnections   *int                `json:"udpConnections"`
 	Uptime           float64             `json:"uptime"`
 	LoadAvg          []float64           `json:"loadAvg"`
 	Interface        *NetworkInterface   `json:"interface"`
@@ -58,17 +67,21 @@ type Snapshot struct {
 
 func GetInfo() Info {
 	hostname, _ := os.Hostname()
+	memory := readMemoryInfo()
 	return Info{
 		Arch:              runtime.GOARCH,
 		CPUs:              runtime.NumCPU(),
 		CPUModel:          cpuModel(),
-		MemoryTotal:       memoryTotal(),
+		MemoryTotal:       memory.total,
 		Hostname:          hostname,
 		Platform:          runtime.GOOS,
-		Release:           runtime.GOOS,
+		Release:           kernelRelease(),
 		Type:              runtime.GOOS,
 		Version:           runtime.Version(),
 		NetworkInterfaces: networkInterfaces(),
+		OsName:            osReleaseName(),
+		Virtualization:    virtualization(),
+		SwapTotal:         memory.swapTotal,
 	}
 }
 
@@ -77,10 +90,16 @@ func GetStats() Stats {
 }
 
 func GetStatsContext(ctx context.Context) Stats {
-	free, total := memoryFreeAndTotal()
+	memory := readMemoryInfo()
+	free, total := memory.free, memory.total
 	used := uint64(0)
 	if total > free {
 		used = total - free
+	}
+	var swapUsed *uint64
+	if memory.swapTotal != nil && memory.swapFree != nil && *memory.swapTotal >= *memory.swapFree {
+		value := *memory.swapTotal - *memory.swapFree
+		swapUsed = &value
 	}
 	interfaceStats := defaultMonitor.GetDefaultInterface()
 	defaultInterface := resolveDefaultInterface()
@@ -99,6 +118,11 @@ func GetStatsContext(ctx context.Context) Stats {
 		ResourceStats:    ResourcesSnapshot(),
 		MemoryFree:       free,
 		MemoryUsed:       used,
+		SwapTotal:        memory.swapTotal,
+		SwapFree:         memory.swapFree,
+		SwapUsed:         swapUsed,
+		ProcessCount:     processCount(),
+		UDPConnections:   udpConnections(),
 		Uptime:           uptime(),
 		LoadAvg:          loadAvg(),
 		Interface:        interfaceStats,
@@ -128,21 +152,26 @@ func networkInterfaces() []string {
 	return names
 }
 
-func memoryTotal() uint64 {
-	_, total := memoryFreeAndTotal()
-	return total
+type memoryInfo struct {
+	free      uint64
+	total     uint64
+	swapFree  *uint64
+	swapTotal *uint64
 }
 
-func memoryFreeAndTotal() (uint64, uint64) {
+func readMemoryInfo() memoryInfo {
+	info := memoryInfo{}
 	file, err := os.Open("/proc/meminfo")
 	if err != nil {
 		var mem runtime.MemStats
 		runtime.ReadMemStats(&mem)
-		return 0, mem.Sys
+		info.total = mem.Sys
+		return info
 	}
 	defer file.Close()
 
-	var free, available, total uint64
+	var free, available, total, swapFree, swapTotal uint64
+	var hasSwap bool
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
@@ -161,12 +190,102 @@ func memoryFreeAndTotal() (uint64, uint64) {
 			free = value
 		case "MemAvailable:":
 			available = value
+		case "SwapTotal:":
+			swapTotal = value
+			hasSwap = true
+		case "SwapFree:":
+			swapFree = value
 		}
 	}
 	if available > 0 {
 		free = available
 	}
-	return free, total
+	info.free = free
+	info.total = total
+	if hasSwap {
+		info.swapTotal = &swapTotal
+		info.swapFree = &swapFree
+	}
+	return info
+}
+
+func processCount() *int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := strconv.Atoi(entry.Name()); err == nil {
+			count++
+		}
+	}
+	return &count
+}
+
+func udpConnections() *int {
+	count := tcpstats.GetUDPConnectionCount()
+	return &count
+}
+
+func kernelRelease() string {
+	if raw, err := os.ReadFile("/proc/sys/kernel/osrelease"); err == nil {
+		if value := strings.TrimSpace(string(raw)); value != "" {
+			return value
+		}
+	}
+	return runtime.GOOS
+}
+
+func osReleaseName() *string {
+	for _, path := range []string{"/etc/os-release", "/usr/lib/os-release"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if !strings.HasPrefix(line, "PRETTY_NAME=") {
+				continue
+			}
+			value := strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
+			if value != "" {
+				return &value
+			}
+		}
+	}
+	return nil
+}
+
+var hypervisorDMI = regexp.MustCompile(`(?i)kvm|qemu|vmware|virtualbox|bochs|xen|hyper-v|virtual machine|droplet|openstack|amazon ec2|bhyve|parallels|google compute`)
+
+func virtualization() *string {
+	hypervisorFlag := false
+	if raw, err := os.ReadFile("/proc/cpuinfo"); err == nil {
+		for _, line := range strings.Split(string(raw), "\n") {
+			if strings.HasPrefix(line, "flags") && strings.Contains(line, "hypervisor") {
+				hypervisorFlag = true
+				break
+			}
+		}
+	}
+	for _, path := range []string{"/sys/class/dmi/id/product_name", "/sys/class/dmi/id/sys_vendor"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		value := strings.TrimSpace(string(raw))
+		if value != "" && hypervisorDMI.MatchString(value) {
+			return &value
+		}
+	}
+	value := "none"
+	if hypervisorFlag {
+		value = "virtual"
+	}
+	return &value
 }
 
 func loadAvg() []float64 {

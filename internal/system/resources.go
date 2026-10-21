@@ -21,11 +21,78 @@ type DiskStats struct {
 	SampledAt      string  `json:"sampledAt"`
 }
 
+type DiskIoStats struct {
+	ReadBytesPerSec  float64 `json:"readBytesPerSec"`
+	WriteBytesPerSec float64 `json:"writeBytesPerSec"`
+	SampledAt        string  `json:"sampledAt"`
+}
+
 type ResourceStats struct {
-	CPUUsagePercent         *float64   `json:"cpuUsagePercent"`
-	CPUSampledAt            *string    `json:"cpuSampledAt"`
-	Disk                    *DiskStats `json:"disk"`
-	ResourceTelemetryErrors []string   `json:"resourceTelemetryErrors"`
+	CPUUsagePercent         *float64     `json:"cpuUsagePercent"`
+	CPUSampledAt            *string      `json:"cpuSampledAt"`
+	Disk                    *DiskStats   `json:"disk"`
+	DiskIo                  *DiskIoStats `json:"diskIo"`
+	ResourceTelemetryErrors []string     `json:"resourceTelemetryErrors"`
+}
+
+type diskCounters struct {
+	readBytes  uint64
+	writeBytes uint64
+}
+
+const diskSectorBytes = 512
+
+// Whole disks live in /sys/block; partitions do not. Summing every
+// /proc/diskstats row would count a partition and its parent disk twice.
+var virtualDiskPrefixes = []string{"dm-", "fd", "loop", "md", "nbd", "ram", "sr", "zram"}
+
+func physicalDiskNames() map[string]struct{} {
+	entries, err := os.ReadDir("/sys/block")
+	if err != nil {
+		return nil
+	}
+	names := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		names[entry.Name()] = struct{}{}
+	}
+	return names
+}
+
+func parseDiskstats(content string, devices map[string]struct{}) map[string]diskCounters {
+	counters := make(map[string]diskCounters)
+	for _, line := range strings.Split(content, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 10 {
+			continue
+		}
+		name := fields[2]
+		if name == "" {
+			continue
+		}
+		if _, ok := devices[name]; !ok {
+			continue
+		}
+		virtual := false
+		for _, prefix := range virtualDiskPrefixes {
+			if strings.HasPrefix(name, prefix) {
+				virtual = true
+				break
+			}
+		}
+		if virtual {
+			continue
+		}
+		readSectors, readErr := strconv.ParseUint(fields[5], 10, 64)
+		writeSectors, writeErr := strconv.ParseUint(fields[9], 10, 64)
+		if readErr != nil || writeErr != nil {
+			continue
+		}
+		counters[name] = diskCounters{
+			readBytes:  readSectors * diskSectorBytes,
+			writeBytes: writeSectors * diskSectorBytes,
+		}
+	}
+	return counters
 }
 
 type cpuCounters struct{ total, idle uint64 }
@@ -78,10 +145,12 @@ func diskStats(blocks, free, available, blockSize uint64, sampledAt string) (*Di
 }
 
 type resourceCollector struct {
-	mu         sync.RWMutex
-	previous   *cpuCounters
-	nextDiskAt time.Time
-	snapshot   ResourceStats
+	mu             sync.RWMutex
+	previous       *cpuCounters
+	nextDiskAt     time.Time
+	previousDiskIo map[string]diskCounters
+	previousDiskAt time.Time
+	snapshot       ResourceStats
 }
 
 var resources = resourceCollector{snapshot: ResourceStats{ResourceTelemetryErrors: []string{"cpu-warming-up", "disk-unavailable"}}}
@@ -114,6 +183,53 @@ func ResourcesSnapshot() ResourceStats {
 	return value
 }
 
+func (collector *resourceCollector) sampleDiskIo(now time.Time, sampledAt string) {
+	// Without /sys/block the parent/partition relationship is unknown, so a
+	// summed rate would double count. Report nothing instead.
+	devices := physicalDiskNames()
+	if devices == nil {
+		collector.previousDiskIo = nil
+		collector.snapshot.DiskIo = nil
+		return
+	}
+	raw, err := os.ReadFile("/proc/diskstats")
+	if err != nil {
+		collector.previousDiskIo = nil
+		collector.snapshot.DiskIo = nil
+		return
+	}
+	current := parseDiskstats(string(raw), devices)
+	previous := collector.previousDiskIo
+	previousAt := collector.previousDiskAt
+	collector.previousDiskIo = current
+	collector.previousDiskAt = now
+	if previous == nil || len(current) == 0 || !now.After(previousAt) {
+		// The first tick only establishes the baseline.
+		collector.snapshot.DiskIo = nil
+		return
+	}
+	elapsed := now.Sub(previousAt).Seconds()
+	var readBytes, writeBytes uint64
+	for name, counters := range current {
+		before, ok := previous[name]
+		if !ok {
+			continue
+		}
+		// A counter reset (device replaced) must not produce a huge rate.
+		if counters.readBytes >= before.readBytes {
+			readBytes += counters.readBytes - before.readBytes
+		}
+		if counters.writeBytes >= before.writeBytes {
+			writeBytes += counters.writeBytes - before.writeBytes
+		}
+	}
+	collector.snapshot.DiskIo = &DiskIoStats{
+		ReadBytesPerSec:  float64(readBytes) / elapsed,
+		WriteBytesPerSec: float64(writeBytes) / elapsed,
+		SampledAt:        sampledAt,
+	}
+}
+
 func (collector *resourceCollector) sample(now time.Time) {
 	collector.mu.Lock()
 	defer collector.mu.Unlock()
@@ -136,6 +252,7 @@ func (collector *resourceCollector) sample(now time.Time) {
 			errors = append(errors, "cpu-warming-up")
 		}
 	}
+	collector.sampleDiskIo(now, sampledAt)
 	if !now.Before(collector.nextDiskAt) {
 		// Match the CPU cadence so the dashboard's root filesystem tile does
 		// not sit unchanged between 30-second snapshots.

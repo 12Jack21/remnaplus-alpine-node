@@ -97,8 +97,21 @@ func TestParseProcNetTCPStats(t *testing.T) {
 		"2: 0100007F:1F91 0100007F:D432 01 00000000:00000000 00:00000000 00000000 0",
 		"3: 0100007F:1F92 0100007F:D433 06 00000000:00000000 03:00001770 00000000 0",
 	})
-	if got := ParseProcNetTCPStats(content); got != (Stats{Established: 2, Total: 4}) {
-		t.Fatalf("stats = %+v, want established=2 total=4", got)
+	if got := ParseProcNetTCPStats(content); got != (Stats{Established: 2, Total: 4, Listening: 1, TimeWait: 1}) {
+		t.Fatalf("stats = %+v, want established=2 total=4 listening=1 timeWait=1", got)
+	}
+}
+
+func TestParseProcNetUDPCount(t *testing.T) {
+	t.Parallel()
+
+	content := joinLines([]string{
+		"  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops",
+		"   0: 0100007F:0035 00000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 12345 2 0000000000000000 0",
+		"   1: 00000000:14E9 00000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 12346 2 0000000000000000 0",
+	})
+	if got := ParseProcNetUDPCount(content); got != 2 {
+		t.Fatalf("udp sockets = %d, want 2", got)
 	}
 }
 

@@ -1,6 +1,7 @@
 package system
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -41,6 +42,26 @@ func TestDiskResources(t *testing.T) {
 	disk, err = diskStats(1<<60, 0, 0, 4096, "now")
 	if err != nil || disk.TotalBytes != "4722366482869645213696" {
 		t.Fatalf("large disk precision: %+v %v", disk, err)
+	}
+}
+
+func TestDiskIoStatsParsing(t *testing.T) {
+	t.Parallel()
+
+	content := strings.Join([]string{
+		"   8       0 sda 1000 0 2000 0 500 0 4000 0 0 0 0",
+		"   8       1 sda1 900 0 1800 0 400 0 3600 0 0 0 0",
+		"   7       0 loop0 10 0 20 0 0 0 0 0 0 0 0",
+		" 253       0 dm-0 400 0 800 0 200 0 1600 0 0 0 0",
+	}, "\n")
+	counters := parseDiskstats(content, map[string]struct{}{
+		"sda": {}, "loop0": {}, "dm-0": {},
+	})
+	if len(counters) != 1 {
+		t.Fatalf("counters = %+v, want only the whole physical disk", counters)
+	}
+	if counters["sda"].readBytes != 2000*diskSectorBytes || counters["sda"].writeBytes != 4000*diskSectorBytes {
+		t.Fatalf("sda counters = %+v", counters["sda"])
 	}
 }
 

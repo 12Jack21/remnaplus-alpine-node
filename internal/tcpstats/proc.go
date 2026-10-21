@@ -11,15 +11,19 @@ import (
 )
 
 var procNetTCPFiles = []string{"/proc/net/tcp", "/proc/net/tcp6"}
+var procNetUDPFiles = []string{"/proc/net/udp", "/proc/net/udp6"}
 
 const (
 	tcpStateEstablished = "01"
+	tcpStateTimeWait    = "06"
 	tcpStateListen      = "0A"
 )
 
 type Stats struct {
 	Established int `json:"established"`
 	Total       int `json:"total"`
+	Listening   int `json:"listening"`
+	TimeWait    int `json:"timeWait"`
 }
 
 type PeerConnection struct {
@@ -70,8 +74,13 @@ func ParseProcNetTCPStats(content string) Stats {
 	var result Stats
 	for _, row := range parseProcRows(content) {
 		result.Total++
-		if row.state == tcpStateEstablished {
+		switch row.state {
+		case tcpStateEstablished:
 			result.Established++
+		case tcpStateListen:
+			result.Listening++
+		case tcpStateTimeWait:
+			result.TimeWait++
 		}
 	}
 	return result
@@ -139,12 +148,32 @@ func ReadStats(paths []string) Stats {
 		stats := ParseProcNetTCPStats(content)
 		result.Established += stats.Established
 		result.Total += stats.Total
+		result.Listening += stats.Listening
+		result.TimeWait += stats.TimeWait
 	}
 	return result
 }
 
 func GetStats() Stats {
 	return ReadStats(procNetTCPFiles)
+}
+
+// ParseProcNetUDPCount counts bound UDP sockets. /proc/net/udp uses the same
+// row layout as /proc/net/tcp, so the shared row parser rejects short lines.
+func ParseProcNetUDPCount(content string) int {
+	return len(parseProcRows(content))
+}
+
+func ReadUDPConnectionCount(paths []string) int {
+	total := 0
+	for _, content := range readProcFiles(paths) {
+		total += ParseProcNetUDPCount(content)
+	}
+	return total
+}
+
+func GetUDPConnectionCount() int {
+	return ReadUDPConnectionCount(procNetUDPFiles)
 }
 
 func parseProcRows(content string) []procRow {
