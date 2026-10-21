@@ -44,6 +44,7 @@ var approvedRoutes = []string{
 	"/node/plugin/nftables/recreate-tables",
 	"/node/vision/block-ip",
 	"/node/vision/unblock-ip",
+	"/node/backtrace/run",
 }
 
 // implementedRoutes marks routes wired in this repository.
@@ -84,6 +85,7 @@ var implementedRoutes = map[string]bool{
 	"/node/plugin/nftables/recreate-tables":     true,
 	"/node/vision/block-ip":                     true,
 	"/node/vision/unblock-ip":                   true,
+	"/node/backtrace/run":                       true,
 }
 
 func TestApprovedRoutesCoverage(t *testing.T) {

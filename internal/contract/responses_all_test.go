@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/12Jack21/remnaplus-alpine-node/internal/auditlog"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/backtrace"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/connections"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/forwarding"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/nodehandler"
@@ -60,6 +61,7 @@ var responseShapeTests = map[string]func(t *testing.T){
 	"/node/plugin/nftables/recreate-tables":     testPluginRecreateTablesResponseShape,
 	"/node/vision/block-ip":                     testVisionBlockIPResponseShape,
 	"/node/vision/unblock-ip":                   testVisionUnblockIPResponseShape,
+	"/node/backtrace/run":                       testBacktraceRunResponseShape,
 }
 
 func TestApprovedResponseShapes(t *testing.T) {
@@ -610,3 +612,42 @@ func (stubStatsProvider) GetUsersIPList(context.Context) ([]xtls.UserIPEntry, er
 type stubReportsCounter struct{}
 
 func (stubReportsCounter) ReportsCount() int { return 0 }
+
+func testBacktraceRunResponseShape(t *testing.T) {
+	probe := backtrace.Probe{
+		ISP:        backtrace.IspTelecom,
+		Checkpoint: "1.1.1.1",
+		DurationMs: 12,
+		Success:    true,
+		Hops:       []backtrace.Hop{},
+		RawOutput:  "NextTrace v1.7.4",
+	}
+	raw := encodeEnvelope(backtrace.Response{
+		Probes:      []backtrace.Probe{probe},
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	assertTopLevelResponse(t, raw)
+	assertJSONPathArray(t, raw, "response.probes")
+	assertJSONPath(t, raw, "response.generatedAt")
+
+	var decoded struct {
+		Response struct {
+			Probes []map[string]any `json:"probes"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	first := decoded.Response.Probes[0]
+	for _, field := range []string{"isp", "checkpoint", "durationMs", "success", "hops", "rawOutput"} {
+		if _, ok := first[field]; !ok {
+			t.Fatalf("probe is missing %q: %s", field, raw)
+		}
+	}
+	if _, ok := first["error"]; !ok {
+		t.Fatalf("probe is missing nullable error field: %s", raw)
+	}
+	if _, ok := first["hops"].([]any); !ok {
+		t.Fatalf("hops must be an array: %s", raw)
+	}
+}

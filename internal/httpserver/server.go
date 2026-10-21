@@ -14,6 +14,7 @@ import (
 
 	"github.com/12Jack21/remnaplus-alpine-node/internal/auditlog"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/auth"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/backtrace"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/bodylimit"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/config"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/connections"
@@ -39,6 +40,7 @@ type Server struct {
 	forwardingService *forwarding.HTTPService
 	visionService     *vision.Service
 	warpService       *warp.Service
+	backtraceService  *backtrace.Service
 }
 
 func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator, manager *xray.Manager, pluginService *plugin.Service, dropper *connections.Dropper) (*Server, error) {
@@ -60,6 +62,7 @@ func New(cfg config.Config, payload secret.Payload, validator *auth.JWTValidator
 		forwardingService: forwarding.NewHTTPService(cfg.ForwardingConfigPath, cfg.ForwardingSocketPath),
 		visionService:     vision.NewService(manager),
 		warpService:       warp.NewService(manager, cfg.WarpProbePort),
+		backtraceService:  backtrace.NewService(cfg.NexttraceBin),
 	}
 
 	protected := validator.Middleware(bodylimit.DecompressMiddleware(bodylimit.LimitMiddleware(http.HandlerFunc(server.handleNodeRoutes))))
@@ -165,6 +168,10 @@ func (s *Server) handleNodeRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleGetSNIHealthStatus(w, r)
 	case r.Method == http.MethodPost && path == "/node/sni-health/probe":
 		s.handleProbeSNIHealth(w, r)
+
+	// triple-network backtrace (RemnaPlus extension)
+	case r.Method == http.MethodPost && path == "/node/backtrace/run":
+		s.handleBacktraceRun(w, r)
 
 	// handler
 	case r.Method == http.MethodPost && path == "/node/handler/add-user":

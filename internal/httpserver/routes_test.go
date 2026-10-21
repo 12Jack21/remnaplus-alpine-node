@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/12Jack21/remnaplus-alpine-node/internal/auditlog"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/backtrace"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/snihealth"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/stats"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/warp"
@@ -265,3 +266,79 @@ func (*routeSNIProvider) CurrentConfig() map[string]any {
 }
 
 func (*routeSNIProvider) InboundTags() []string { return []string{"main"} }
+
+func TestHandleNodeRoutesBacktraceRunRejectsUnsafeTargets(t *testing.T) {
+	t.Parallel()
+
+	server := &Server{backtraceService: backtrace.NewService("nexttrace-tiny")}
+	for _, body := range []string{
+		`{"targets":[{"isp":"telecom","host":"192.168.1.1"}]}`,
+		`{"targets":[{"isp":"other","host":"example.com"}]}`,
+		`{"targets":[]}`,
+		`{"targets":[{"isp":"telecom","host":"example.com","extra":true}]}`,
+		`not-json`,
+	} {
+		recorder := httptest.NewRecorder()
+		server.handleNodeRoutes(recorder, httptest.NewRequest(http.MethodPost, "/node/backtrace/run", strings.NewReader(body)))
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("body %s => status %d: %s", body, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+func TestHandleNodeRoutesBacktraceRunReportsMissingBinary(t *testing.T) {
+	t.Parallel()
+
+	binary := filepath.Join(t.TempDir(), "missing-nexttrace-tiny")
+	server := &Server{backtraceService: backtrace.NewService(binary)}
+	recorder := httptest.NewRecorder()
+	server.handleNodeRoutes(recorder, httptest.NewRequest(
+		http.MethodPost,
+		"/node/backtrace/run",
+		strings.NewReader(`{"targets":[{"isp":"telecom","host":"1.1.1.1"}]}`),
+	))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var body struct {
+		Response struct {
+			Probes []struct {
+				ISP        string  `json:"isp"`
+				Checkpoint string  `json:"checkpoint"`
+				Success    bool    `json:"success"`
+				Error      *string `json:"error"`
+				Hops       []any   `json:"hops"`
+				RawOutput  string  `json:"rawOutput"`
+			} `json:"probes"`
+			GeneratedAt string `json:"generatedAt"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Response.Probes) != 1 || body.Response.Probes[0].Success {
+		t.Fatalf("unexpected probes: %+v", body.Response.Probes)
+	}
+	probe := body.Response.Probes[0]
+	if probe.Error == nil || *probe.Error != "nexttrace-tiny is not installed on this node." {
+		t.Fatalf("error = %v", probe.Error)
+	}
+	if probe.Hops == nil {
+		t.Fatal("hops must be an array, not null")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, body.Response.GeneratedAt); err != nil {
+		t.Fatalf("generatedAt = %q: %v", body.Response.GeneratedAt, err)
+	}
+}
+
+func TestHandleNodeRoutesBacktraceRejectsGet(t *testing.T) {
+	t.Parallel()
+
+	server := &Server{backtraceService: backtrace.NewService("nexttrace-tiny")}
+	recorder := httptest.NewRecorder()
+	server.handleNodeRoutes(recorder, httptest.NewRequest(http.MethodGet, "/node/backtrace/run", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", recorder.Code)
+	}
+}

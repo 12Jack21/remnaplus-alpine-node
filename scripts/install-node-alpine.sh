@@ -2,7 +2,7 @@
 # github.com/12Jack21/remnaplus-alpine-node Alpine Linux 一键安装（OpenRC）
 set -euo pipefail
 
-VERSION="1.0.6"
+VERSION="1.0.7"
 RNL_LANG="${RNL_LANG:-zh}"
 export RNL_LANG
 PREFIX="/usr/local/bin"
@@ -78,6 +78,9 @@ TAG="$(resolve_install_tag "$REPO" "v${VERSION}")"
 RNL_RELEASE_BASE_URL="${RNL_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/${TAG}}"
 INSTALL_XRAY="${RNL_INSTALL_XRAY:-1}"
 SKIP_XRAY="${RNL_SKIP_XRAY:-0}"
+INSTALL_NEXTTRACE="${RNL_INSTALL_NEXTTRACE:-1}"
+SKIP_NEXTTRACE="${RNL_SKIP_NEXTTRACE:-0}"
+NEXTTRACE_TINY_VERSION="v1.7.4"
 SECRET_FILE_ARG=""
 
 YES=0
@@ -105,6 +108,7 @@ while [ $# -gt 0 ]; do
     --yes|-y) YES=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --skip-xray) SKIP_XRAY=1 ;;
+    --skip-nexttrace) SKIP_NEXTTRACE=1 ;;
     --low-memory) LOW_MEMORY=1 ;;
     --port)
       NODE_PORT="${2:-}"
@@ -437,6 +441,46 @@ apply_capabilities() {
   setcap cap_net_admin+ep "${PREFIX}/${BIN_NAME}"
 }
 
+install_nexttrace() {
+  if [ "$SKIP_NEXTTRACE" -eq 1 ] || [ "$INSTALL_NEXTTRACE" -eq 0 ]; then
+    rnl_msg skip_nexttrace
+    return 0
+  fi
+
+  step nexttrace_install
+  local arch asset expected url staged
+  arch="$(detect_arch)"
+  case "$arch" in
+    amd64) asset="nexttrace-tiny_linux_amd64"; expected="68b6a2210724a4b9439d9337ac69bf17fc7d662002a9a9dbdc5b96c1ab44ca26" ;;
+    arm64) asset="nexttrace-tiny_linux_arm64"; expected="ce8fb581c2bd30a157aec4a38e5c0fa1c79eac3b761a978146267b6ae1c678e3" ;;
+    *)
+      rnl_msg nexttrace_unavailable "unsupported architecture ${arch}" >&2
+      return 0
+      ;;
+  esac
+  url="https://github.com/nxtrace/NTrace-core/releases/download/${NEXTTRACE_TINY_VERSION}/${asset}"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "[dry-run] curl -fsSL ${url}"
+    echo "[dry-run] verify ${expected} and install ${PREFIX}/nexttrace-tiny"
+    return 0
+  fi
+
+  staged="${PREFIX}/.nexttrace-tiny.new.$$"
+  if ! curl -fsSL "$url" -o "$staged"; then
+    rm -f "$staged"
+    rnl_msg nexttrace_unavailable "download failed" >&2
+    return 0
+  fi
+  if ! printf '%s  %s\n' "$expected" "$staged" | sha256sum -c -; then
+    rm -f "$staged"
+    rnl_msg nexttrace_unavailable "checksum mismatch" >&2
+    return 0
+  fi
+  chmod 0755 "$staged"
+  mv -f "$staged" "${PREFIX}/nexttrace-tiny"
+  rnl_msg nexttrace_ready "${PREFIX}/nexttrace-tiny"
+}
+
 install_xray() {
   if [ "$SKIP_XRAY" -eq 1 ] || [ "$INSTALL_XRAY" -eq 0 ]; then
     rnl_msg skip_xray
@@ -683,6 +727,7 @@ do_install() {
   download_binary "$arch"
   apply_capabilities
   install_xray
+  install_nexttrace
   install_geo_extra_files
   setup_vnstat
   prompt_node_port

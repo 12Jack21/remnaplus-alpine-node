@@ -45,6 +45,14 @@ rnl_msg() {
     en:capabilities) printf 'Grant CAP_NET_ADMIN (nftables / ss -K)' ;;
     zh:xray_install) printf '安装 rw-core (Xray core)' ;;
     en:xray_install) printf 'Install rw-core (Xray core)' ;;
+    zh:nexttrace_install) printf '安装 nexttrace-tiny (三网回程检测)' ;;
+    en:nexttrace_install) printf 'Install nexttrace-tiny (triple-network backtrace)' ;;
+    zh:skip_nexttrace) printf '跳过 nexttrace-tiny 安装。\n' ;;
+    en:skip_nexttrace) printf 'Skip nexttrace-tiny installation.\n' ;;
+    zh:nexttrace_unavailable) printf '警告：nexttrace-tiny 安装失败（%s），三网回程检测将不可用。\n' "$@" ;;
+    en:nexttrace_unavailable) printf 'Warning: nexttrace-tiny installation failed (%s); triple-network backtrace will be unavailable.\n' "$@" ;;
+    zh:nexttrace_ready) printf 'nexttrace-tiny 已安装：%s\n' "$@" ;;
+    en:nexttrace_ready) printf 'nexttrace-tiny installed: %s\n' "$@" ;;
     zh:directories) printf '创建目录' ;;
     en:directories) printf 'Create directories' ;;
     zh:environment) printf '配置 %s' "$@" ;;
@@ -128,6 +136,7 @@ Remnawave Node Lite (Go) ${version} - Alpine / OpenRC 安装、升级与卸载
   --yes, -y           跳过确认
   --dry-run           预览
   --skip-xray         跳过 rw-core
+  --skip-nexttrace    跳过 nexttrace-tiny（三网回程检测）
   --low-memory        低内存模式
   --port PORT         监听端口（端口必须为 1-65535，默认 2222）
   --secret-file PATH  从文件导入 Secret Key
@@ -152,6 +161,7 @@ Options:
   --yes, -y           Skip confirmation
   --dry-run           Preview changes
   --skip-xray         Skip rw-core
+  --skip-nexttrace    Skip nexttrace-tiny (triple-network backtrace)
   --low-memory        Low-memory mode
   --port PORT         Listener port (Port must be between 1 and 65535; default 2222)
   --secret-file PATH  Import the Secret Key from a file

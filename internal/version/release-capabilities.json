@@ -2,6 +2,7 @@
   "contractVersion": "2.8.0",
   "capabilities": [
     "audit-log",
+    "backtrace",
     "forwarding-telemetry",
     "host-vnstat",
     "nftables",

@@ -36,6 +36,7 @@ func TestRemnaPlusApprovedRouteContractIsExactAndWired(t *testing.T) {
 		"/node/plugin/nftables/block-ips", "/node/plugin/nftables/unblock-ips",
 		"/node/plugin/nftables/recreate-tables",
 		"/node/vision/block-ip", "/node/vision/unblock-ip",
+		"/node/backtrace/run",
 	}
 	actual := append([]string(nil), approvedRoutes...)
 	sort.Strings(expected)

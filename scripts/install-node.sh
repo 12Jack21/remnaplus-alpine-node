@@ -2,7 +2,7 @@
 # RemnaPlus Debian/systemd native installer
 set -euo pipefail
 
-VERSION="1.0.6"
+VERSION="1.0.7"
 RNL_LANG="${RNL_LANG:-zh}"
 export RNL_LANG
 PREFIX="/usr/local/bin"
@@ -64,6 +64,9 @@ TAG="$(resolve_install_tag "$REPO" "v${VERSION}")"
 RNL_RELEASE_BASE_URL="${RNL_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/${TAG}}"
 INSTALL_XRAY="${RNL_INSTALL_XRAY:-1}"
 SKIP_XRAY="${RNL_SKIP_XRAY:-0}"
+INSTALL_NEXTTRACE="${RNL_INSTALL_NEXTTRACE:-1}"
+SKIP_NEXTTRACE="${RNL_SKIP_NEXTTRACE:-0}"
+NEXTTRACE_TINY_VERSION="v1.7.4"
 SECRET_FILE_ARG=""
 INSTALL_TMP=""
 BINARY_BACKUP=""
@@ -94,6 +97,7 @@ Remnawave Node Lite (Go) ${VERSION} — 安装 / 升级 / 卸载
   --yes, -y           跳过确认
   --dry-run           预览
   --skip-xray         跳过 rw-core
+  --skip-nexttrace    跳过 nexttrace-tiny（三网回程检测）
   --low-memory        低内存模式
   --port PORT         监听端口（默认 2222）
   --secret-file PATH  从文件导入 Secret Key
@@ -118,6 +122,7 @@ while [ $# -gt 0 ]; do
     --yes|-y) YES=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --skip-xray) SKIP_XRAY=1 ;;
+    --skip-nexttrace) SKIP_NEXTTRACE=1 ;;
     --low-memory) LOW_MEMORY=1 ;;
     --port)
       NODE_PORT="${2:-}"
@@ -531,6 +536,46 @@ activate_binary() {
   BINARY_ACTIVATED=1
 }
 
+install_nexttrace() {
+  if [ "$SKIP_NEXTTRACE" -eq 1 ] || [ "$INSTALL_NEXTTRACE" -eq 0 ]; then
+    echo "跳过 nexttrace-tiny 安装。"
+    return 0
+  fi
+
+  step "安装 nexttrace-tiny (三网回程检测)"
+  local arch asset expected
+  arch="$(detect_arch)"
+  case "$arch" in
+    amd64) asset="nexttrace-tiny_linux_amd64"; expected="68b6a2210724a4b9439d9337ac69bf17fc7d662002a9a9dbdc5b96c1ab44ca26" ;;
+    arm64) asset="nexttrace-tiny_linux_arm64"; expected="ce8fb581c2bd30a157aec4a38e5c0fa1c79eac3b761a978146267b6ae1c678e3" ;;
+    *)
+      echo "警告：不支持 ${arch} 架构的 nexttrace-tiny，三网回程检测将不可用。" >&2
+      return 0
+      ;;
+  esac
+  local url="https://github.com/nxtrace/NTrace-core/releases/download/${NEXTTRACE_TINY_VERSION}/${asset}"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "[dry-run] curl -fsSL ${url}"
+    echo "[dry-run] verify ${expected} and install ${PREFIX}/nexttrace-tiny"
+    return 0
+  fi
+
+  local staged="${PREFIX}/.nexttrace-tiny.new.$$"
+  if ! curl -fsSL "$url" -o "$staged"; then
+    rm -f "$staged"
+    echo "警告：nexttrace-tiny 下载失败，三网回程检测将不可用；可稍后重新运行安装。" >&2
+    return 0
+  fi
+  if ! printf '%s  %s\n' "$expected" "$staged" | sha256sum -c -; then
+    rm -f "$staged"
+    echo "警告：nexttrace-tiny 校验失败，未安装；三网回程检测将不可用。" >&2
+    return 0
+  fi
+  chmod 0755 "$staged"
+  mv -f "$staged" "${PREFIX}/nexttrace-tiny"
+  echo "nexttrace-tiny 已安装：${PREFIX}/nexttrace-tiny"
+}
+
 install_xray() {
   if [ "$SKIP_XRAY" -eq 1 ] || [ "$INSTALL_XRAY" -eq 0 ]; then
     echo "跳过 rw-core 安装。"
@@ -769,6 +814,7 @@ do_upgrade() {
   port="$(configured_node_port)"
   validate_port "$port"
   download_binary "$arch"
+  install_nexttrace
   install_systemd
   activate_binary
   start_service
@@ -809,6 +855,7 @@ do_install() {
   print_pre_install_panel_hint
   download_binary "$arch"
   install_xray
+  install_nexttrace
   setup_vnstat
   install_geo_extra_files
   prompt_node_port

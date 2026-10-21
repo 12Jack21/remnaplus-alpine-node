@@ -15,6 +15,7 @@ import (
 const (
 	DefaultEnvPath            = "/etc/remnanode/node.env"
 	defaultXrayBin            = "/usr/local/bin/rw-core"
+	defaultNexttraceBin       = "/usr/local/bin/nexttrace-tiny"
 	defaultGeoDir             = "/usr/local/share/xray"
 	defaultLogDir             = "/var/log/remnanode"
 	defaultDataDir            = "/var/lib/remnanode"
@@ -40,6 +41,7 @@ type Config struct {
 	BindAddr              string
 	SecretKey             string
 	XrayBin               string
+	NexttraceBin          string
 	GeoDir                string
 	LogDir                string
 	DataDir               string
@@ -72,6 +74,7 @@ func Load(dotenvPath string) (Config, error) {
 		"SECRET_KEY",
 		"SECRET_KEY_FILE",
 		"XRAY_BIN",
+		"NEXTTRACE_PATH",
 		"GEO_DIR",
 		"LOG_DIR",
 		"DATA_DIR",
@@ -121,6 +124,7 @@ func Load(dotenvPath string) (Config, error) {
 		BindAddr:              strings.TrimSpace(values["NODE_BIND_ADDR"]),
 		SecretKey:             secretKey,
 		XrayBin:               optionalString(values, "XRAY_BIN", defaultXrayBin),
+		NexttraceBin:          optionalString(values, "NEXTTRACE_PATH", defaultNexttraceBin),
 		GeoDir:                optionalString(values, "GEO_DIR", defaultGeoDir),
 		LogDir:                optionalString(values, "LOG_DIR", defaultLogDir),
 		DataDir:               optionalString(values, "DATA_DIR", defaultDataDir),
