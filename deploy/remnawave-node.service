@@ -19,8 +19,10 @@ UMask=0077
 # 对齐官方 docker-compose cap_add: NET_ADMIN
 # nftables 插件、ss -K 踢连接、policy 注入均依赖此 capability
 # Xray inbounds and the management listener may use privileged ports (e.g. 443).
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+# CAP_NET_RAW：三网回程检测（nexttrace-tiny）使用 ICMP 原始套接字；
+# 缺少它时探针会报 "ListenPacket(ip4:icmp) failed: operation not permitted"。
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

@@ -24,8 +24,8 @@ assert_absent() {
   fi
 }
 
-assert_contains "$installer" 'VERSION="1\.0\.7"'
-assert_contains "$installer_en" 'VERSION="1\.0\.7"'
+assert_contains "$installer" 'VERSION="1\.0\.8"'
+assert_contains "$installer_en" 'VERSION="1\.0\.8"'
 assert_contains "$installer" '/etc/alpine-release'
 assert_contains "$installer" 'RNL_RELEASE_BASE_URL'
 assert_contains "$installer" 'RNL_INSTALLER_BUNDLE_SHA256'
@@ -40,7 +40,7 @@ assert_contains "$installer" 'rc-update add remnawave-node default'
 assert_contains "${repo_root}/scripts/install-xray.sh" 'RNL_WORK_TMPDIR:-/var/tmp'
 assert_contains "${repo_root}/scripts/install-xray.sh" 'remnanode-xray\.XXXXXX'
 
-assert_contains "$upgrade" 'VERSION="1\.0\.7"'
+assert_contains "$upgrade" 'VERSION="1\.0\.8"'
 assert_contains "$upgrade" 'RNL_RELEASE_BASE_URL'
 assert_contains "$upgrade" 'RNL_BINARY_SHA256_'
 assert_contains "$upgrade" 'sha256sum -c -'
