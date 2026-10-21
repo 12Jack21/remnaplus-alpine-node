@@ -45,7 +45,7 @@ func TestStringIncludesBothVersions(t *testing.T) {
 }
 
 func TestReleaseVersionIsCurrentPatch(t *testing.T) {
-	if Version != "1.0.9" {
-		t.Fatalf("Version = %q, want 1.0.9", Version)
+	if Version != "1.0.10" {
+		t.Fatalf("Version = %q, want 1.0.10", Version)
 	}
 }
