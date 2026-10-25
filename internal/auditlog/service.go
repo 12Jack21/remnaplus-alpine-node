@@ -39,6 +39,7 @@ type ChunkRequest struct {
 	MaxReadBytes     int64
 	Offset           *int64
 	Source           Source
+	SegmentID        string
 }
 
 type Chunk struct {
@@ -95,6 +96,12 @@ func (s *Service) ReadChunk(request ChunkRequest) (Chunk, error) {
 	path, err := s.pathFor(request.Source)
 	if err != nil {
 		return Chunk{}, err
+	}
+	if request.SegmentID != "" {
+		path, err = s.pathForSegment(request.Source, request.SegmentID)
+		if err != nil {
+			return Chunk{}, err
+		}
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -198,6 +205,29 @@ func (s *Service) ReadChunk(request ChunkRequest) (Chunk, error) {
 	result.TotalSize = snapshotEnd
 	result.TotalSizeText = strconv.FormatInt(snapshotEnd, 10)
 	return result, nil
+}
+
+func (s *Service) pathForSegment(source Source, id string) (string, error) {
+	active, err := s.pathFor(source)
+	if err != nil {
+		return "", err
+	}
+	if id == filepath.Base(active) {
+		return active, nil
+	}
+	base := filepath.Base(active)
+	if filepath.Base(id) != id || !strings.HasPrefix(id, base+".segment-") || !strings.HasSuffix(id, ".sealed") {
+		return "", errors.New("invalid audit log segment id")
+	}
+	path := filepath.Join(filepath.Dir(active), id)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("audit log segment is not a regular file")
+	}
+	return path, nil
 }
 
 func (s *Service) SourceMetadata(source Source) (SourceMetadata, error) {

@@ -68,6 +68,40 @@ func TestReadChunkSupportsInitialTailOffsetsAndTimestampFiltering(t *testing.T) 
 	}
 }
 
+func TestCatalogAndReadChunkAddressSealedSegments(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	active := filepath.Join(directory, "access.log")
+	sealed := active + ".segment-20261025-000001.sealed"
+	if err := os.WriteFile(active, []byte("active\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sealed, []byte("sealed line\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(active, filepath.Join(directory, "error.log"))
+	catalog, err := service.Catalog(SourceAccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog) != 2 || !catalog[0].Sealed || catalog[1].Sealed {
+		t.Fatalf("unexpected catalog: %+v", catalog)
+	}
+	chunk, err := service.ReadChunk(ChunkRequest{Source: SourceAccess, SegmentID: filepath.Base(sealed), Offset: int64Pointer(0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunk.Lines) != 1 || chunk.Lines[0] != "sealed line" || chunk.FileInode == nil || *chunk.FileInode != catalog[0].Inode {
+		t.Fatalf("unexpected segment chunk=%+v", chunk)
+	}
+	_, err = service.ReadChunk(ChunkRequest{Source: SourceAccess, SegmentID: "../error.log"})
+	if err == nil {
+		t.Fatal("expected segment traversal to be rejected")
+	}
+}
+
+func int64Pointer(value int64) *int64 { return &value }
+
 func TestReadChunkRejectsChangedInodeAndHonorsEndOffset(t *testing.T) {
 	t.Parallel()
 

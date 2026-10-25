@@ -119,6 +119,7 @@ func decodeAuditChunkRequest(values url.Values) (auditlog.ChunkRequest, error) {
 		EndOffset: endOffset,
 		Offset:    offset,
 		Source:    source,
+		SegmentID: strings.TrimSpace(values.Get("segmentId")),
 	}
 	if initialTailBytes != nil {
 		request.InitialTailBytes = *initialTailBytes

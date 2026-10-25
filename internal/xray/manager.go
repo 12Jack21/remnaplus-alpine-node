@@ -74,10 +74,11 @@ type Manager struct {
 }
 
 type processState struct {
-	cmd    *exec.Cmd
-	done   chan error
-	stdout io.WriteCloser
-	stderr io.WriteCloser
+	cmd     *exec.Cmd
+	done    chan error
+	stdout  io.WriteCloser
+	stderr  io.WriteCloser
+	managed []*managedLogPump
 
 	mu      sync.Mutex
 	exited  bool
@@ -219,6 +220,7 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) StartResponse {
 	defer m.lifecycleMu.Unlock()
 
 	fullConfig := generateAPIConfig(req.XrayConfig, m.xtlsSocket, m.torrentBlockerOptions(), m.warpProbePort)
+	managedPumps := configureManagedLogPaths(fullConfig, m.logDir)
 	if warpError, ok := fullConfig["__warpGuardError"].(string); ok && warpError != "" {
 		delete(fullConfig, "__warpGuardError")
 		log.Printf("xray/start rejected: %s", warpError)
@@ -276,7 +278,7 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) StartResponse {
 	m.runPreStart()
 
 	m.mu.Lock()
-	process, err := m.startProcessLocked()
+	process, err := m.startProcessLocked(managedPumps)
 	if err != nil {
 		m.xrayOnline = false
 		m.mu.Unlock()
@@ -515,7 +517,20 @@ func BuildConfigURL(socketPath string) string {
 	return fmt.Sprintf("http+unix://%s/internal/get-config", socketPath)
 }
 
-func (m *Manager) startProcessLocked() (*processState, error) {
+func (m *Manager) startProcessLocked(managedPumps []*managedLogPump) (*processState, error) {
+	startedPumps := make([]*managedLogPump, 0, len(managedPumps))
+	for _, pump := range managedPumps {
+		name := filepath.Base(pump.pipePath)
+		active := filepath.Join(m.logDir, strings.TrimPrefix(name, "."))
+		active = strings.TrimSuffix(active, ".pipe")
+		if err := pump.start(active); err != nil {
+			for _, started := range startedPumps {
+				started.close()
+			}
+			return nil, err
+		}
+		startedPumps = append(startedPumps, pump)
+	}
 	stdout, err := openSegmentedLogWriter(filepath.Join(m.logDir, "xray.out.log"), maxLogSize)
 	if err != nil {
 		return nil, fmt.Errorf("open xray stdout log: %w", err)
@@ -538,14 +553,18 @@ func (m *Manager) startProcessLocked() (*processState, error) {
 	if err := cmd.Start(); err != nil {
 		_ = stdout.Close()
 		_ = stderr.Close()
+		for _, pump := range startedPumps {
+			pump.close()
+		}
 		return nil, fmt.Errorf("start rw-core: %w", err)
 	}
 
 	process := &processState{
-		cmd:    cmd,
-		done:   make(chan error, 1),
-		stdout: stdout,
-		stderr: stderr,
+		cmd:     cmd,
+		done:    make(chan error, 1),
+		stdout:  stdout,
+		stderr:  stderr,
+		managed: managedPumps,
 	}
 	go m.monitorProcess(process)
 
@@ -556,6 +575,9 @@ func (m *Manager) monitorProcess(process *processState) {
 	err := process.cmd.Wait()
 	_ = process.stdout.Close()
 	_ = process.stderr.Close()
+	for _, pump := range process.managed {
+		pump.close()
+	}
 	process.markExited(err)
 	if err != nil {
 		log.Printf("rw-core exited: %v", err)
