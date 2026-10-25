@@ -1,10 +1,14 @@
 package xray
 
 import (
+	"bytes"
 	"context"
-	"io"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,56 +21,134 @@ const (
 
 var rotatedLogFiles = []string{"xray.out.log", "xray.err.log"}
 
-// StartLogRotation periodically rotates rw-core log files so long-running
-// nodes never fill small VPS disks. Rotation is copy+truncate: the O_APPEND
-// descriptor held by the running rw-core process stays valid because every
-// append write seeks to the (new) end of file.
+// StartLogRotation is retained for lifecycle compatibility. Managed writers
+// rotate at complete-line boundaries as bytes arrive, so no timer mutates an
+// active Xray destination.
 func (m *Manager) StartLogRotation(ctx context.Context) {
-	ticker := time.NewTicker(logCheckInterval)
-	defer ticker.Stop()
+	<-ctx.Done()
+}
+
+func (m *Manager) rotateLogs() {}
+
+type segmentedLogWriter struct {
+	mu       sync.Mutex
+	path     string
+	file     *os.File
+	size     int64
+	maxSize  int64
+	pending  []byte
+	segment  uint64
+	openDate string
+}
+
+func openSegmentedLogWriter(path string, maxSize int64) (*segmentedLogWriter, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	segmentPrefix := filepath.Base(path) + ".segment-"
+	var generation uint64
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, segmentPrefix) || !strings.HasSuffix(name, ".sealed") {
+			continue
+		}
+		generation++
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return &segmentedLogWriter{
+		file:     file,
+		maxSize:  maxSize,
+		path:     path,
+		size:     info.Size(),
+		openDate: time.Now().UTC().Format("20060102"),
+		segment:  generation,
+	}, nil
+}
+
+func (w *segmentedLogWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pending = append(w.pending, p...)
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			m.rotateLogs()
+		index := bytes.IndexByte(w.pending, '\n')
+		if index < 0 {
+			return len(p), nil
+		}
+		line := w.pending[:index+1]
+		if err := w.writeLine(line); err != nil {
+			return 0, err
+		}
+		w.pending = w.pending[index+1:]
+	}
+}
+
+func (w *segmentedLogWriter) writeLine(line []byte) error {
+	today := time.Now().UTC().Format("20060102")
+	if (w.maxSize > 0 && w.size > 0 && w.size+int64(len(line)) > w.maxSize) || today != w.openDate {
+		if err := w.seal(today); err != nil {
+			return err
 		}
 	}
-}
-
-func (m *Manager) rotateLogs() {
-	for _, name := range rotatedLogFiles {
-		rotateLogIfNeeded(filepath.Join(m.logDir, name), maxLogSize)
-	}
-}
-
-// rotateLogIfNeeded copies path to path+".1" (replacing the previous backup)
-// and truncates path in place once it reaches maxSize. Lines written between
-// copy and truncate may be lost, which is acceptable for diagnostic logs.
-func rotateLogIfNeeded(path string, maxSize int64) {
-	info, err := os.Stat(path)
-	if err != nil || info.Size() < maxSize {
-		return
-	}
-	if err := copyFile(path, path+".1"); err != nil {
-		return
-	}
-	_ = os.Truncate(path, 0)
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
+	n, err := w.file.Write(line)
+	w.size += int64(n)
 	return err
+}
+
+func (w *segmentedLogWriter) seal(today string) error {
+	if err := w.file.Sync(); err != nil {
+		return err
+	}
+	if err := w.file.Close(); err != nil {
+		return err
+	}
+	sealed := ""
+	for {
+		w.segment++
+		candidate := fmt.Sprintf("%s.segment-%s-%06d.sealed", w.path, today, w.segment)
+		if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
+			sealed = candidate
+			break
+		} else if err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(w.path, sealed); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	w.file = file
+	w.size = 0
+	w.openDate = today
+	return nil
+}
+
+func (w *segmentedLogWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.pending) > 0 {
+		if _, err := w.file.Write(w.pending); err != nil {
+			return err
+		}
+		w.pending = nil
+	}
+	if err := w.file.Sync(); err != nil {
+		return err
+	}
+	return w.file.Close()
 }

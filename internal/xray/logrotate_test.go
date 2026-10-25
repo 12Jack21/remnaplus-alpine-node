@@ -1,74 +1,116 @@
 package xray
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
-func TestRotateLogIfNeededSkipsSmallFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "xray.out.log")
-	if err := os.WriteFile(path, []byte("small"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
+func TestSegmentedLogWriterBuffersPartialLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "xray.out.log")
+	writer, err := openSegmentedLogWriter(path, 1024)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	rotateLogIfNeeded(path, 1024)
-
-	if _, err := os.Stat(path + ".1"); !os.IsNotExist(err) {
-		t.Fatalf("expected no backup for small file, stat err=%v", err)
+	if _, err := writer.Write([]byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Size() != 0 {
+		t.Fatalf("partial line visible: info=%v err=%v", info, err)
+	}
+	if _, err := writer.Write([]byte(" line\nsecond\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
-	if err != nil || string(data) != "small" {
-		t.Fatalf("original file must be untouched, got %q err=%v", data, err)
+	if err != nil || string(data) != "first line\nsecond\n" {
+		t.Fatalf("data=%q err=%v", data, err)
 	}
 }
 
-func TestRotateLogIfNeededRotatesAndTruncates(t *testing.T) {
+func TestSegmentedLogWriterRotatesCompleteLines(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "xray.err.log")
-	payload := bytes.Repeat([]byte("x"), 2048)
-	if err := os.WriteFile(path, payload, 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	rotateLogIfNeeded(path, 1024)
-
-	backup, err := os.ReadFile(path + ".1")
+	writer, err := openSegmentedLogWriter(path, 8)
 	if err != nil {
-		t.Fatalf("read backup: %v", err)
+		t.Fatal(err)
 	}
-	if !bytes.Equal(backup, payload) {
-		t.Fatalf("backup must contain previous content (%d bytes), got %d bytes", len(payload), len(backup))
+	if _, err := writer.Write([]byte("1234\n5678\n")); err != nil {
+		t.Fatal(err)
 	}
-	info, err := os.Stat(path)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("stat original: %v", err)
+		t.Fatal(err)
 	}
-	if info.Size() != 0 {
-		t.Fatalf("original must be truncated to 0, got %d", info.Size())
+	var sealed string
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), ".sealed") {
+			sealed = filepath.Join(dir, entry.Name())
+		}
+	}
+	if sealed == "" {
+		t.Fatal("expected a sealed segment")
+	}
+	data, err := os.ReadFile(sealed)
+	if err != nil || string(data) != "1234\n" {
+		t.Fatalf("sealed=%q err=%v", data, err)
+	}
+	active, err := os.ReadFile(path)
+	if err != nil || string(active) != "5678\n" {
+		t.Fatalf("active=%q err=%v", active, err)
 	}
 }
 
-func TestRotateLogIfNeededReplacesOldBackup(t *testing.T) {
+func TestSegmentedLogWriterReopensExistingActiveFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "xray.out.log")
+	first, err := openSegmentedLogWriter(path, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = first.Write([]byte("before\n"))
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := openSegmentedLogWriter(path, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = second.Write([]byte("after\n"))
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "before\nafter\n" {
+		t.Fatalf("data=%q err=%v", data, err)
+	}
+}
+
+func TestSegmentedLogWriterDoesNotReplaceExistingSealedGeneration(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "xray.out.log")
-	if err := os.WriteFile(path+".1", []byte("old backup"), 0o644); err != nil {
-		t.Fatalf("write old backup: %v", err)
+	existing := path + ".segment-" + time.Now().UTC().Format("20060102") + "-000001.sealed"
+	if err := os.WriteFile(existing, []byte("preserve\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	payload := bytes.Repeat([]byte("y"), 2048)
-	if err := os.WriteFile(path, payload, 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	rotateLogIfNeeded(path, 1024)
-
-	backup, err := os.ReadFile(path + ".1")
+	writer, err := openSegmentedLogWriter(path, 4)
 	if err != nil {
-		t.Fatalf("read backup: %v", err)
+		t.Fatal(err)
 	}
-	if !bytes.Equal(backup, payload) {
-		t.Fatalf("backup must be replaced with new content, got %q", backup[:16])
+	if _, err := writer.Write([]byte("new\nmore\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(existing)
+	if err != nil || string(data) != "preserve\n" {
+		t.Fatalf("existing sealed segment changed to %q err=%v", data, err)
 	}
 }

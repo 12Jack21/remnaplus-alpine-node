@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -75,8 +76,8 @@ type Manager struct {
 type processState struct {
 	cmd    *exec.Cmd
 	done   chan error
-	stdout *os.File
-	stderr *os.File
+	stdout io.WriteCloser
+	stderr io.WriteCloser
 
 	mu      sync.Mutex
 	exited  bool
@@ -515,12 +516,11 @@ func BuildConfigURL(socketPath string) string {
 }
 
 func (m *Manager) startProcessLocked() (*processState, error) {
-	m.rotateLogs()
-	stdout, err := os.OpenFile(filepath.Join(m.logDir, "xray.out.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	stdout, err := openSegmentedLogWriter(filepath.Join(m.logDir, "xray.out.log"), maxLogSize)
 	if err != nil {
 		return nil, fmt.Errorf("open xray stdout log: %w", err)
 	}
-	stderr, err := os.OpenFile(filepath.Join(m.logDir, "xray.err.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	stderr, err := openSegmentedLogWriter(filepath.Join(m.logDir, "xray.err.log"), maxLogSize)
 	if err != nil {
 		_ = stdout.Close()
 		return nil, fmt.Errorf("open xray stderr log: %w", err)
