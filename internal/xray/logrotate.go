@@ -18,6 +18,10 @@ const (
 	// so worst-case disk usage is ~2x maxLogSize per file.
 	maxLogSize       = 10 << 20
 	logCheckInterval = 10 * time.Minute
+	// A malformed source line must not hold an unbounded amount of data in
+	// memory while waiting for a newline. Flushing this chunk preserves bytes;
+	// the reader can still report the resulting record as oversized.
+	maxPendingLineBytes = 1 << 20
 )
 
 var rotatedLogFiles = []string{"xray.out.log", "xray.err.log"}
@@ -88,7 +92,20 @@ func (w *segmentedLogWriter) Write(p []byte) (int, error) {
 	w.pending = append(w.pending, p...)
 	for {
 		index := bytes.IndexByte(w.pending, '\n')
+		if index >= maxPendingLineBytes {
+			if err := w.writeLine(w.pending[:maxPendingLineBytes]); err != nil {
+				return 0, err
+			}
+			w.pending = w.pending[maxPendingLineBytes:]
+			continue
+		}
 		if index < 0 {
+			if len(w.pending) >= maxPendingLineBytes {
+				if err := w.writeLine(w.pending); err != nil {
+					return 0, err
+				}
+				w.pending = w.pending[:0]
+			}
 			return len(p), nil
 		}
 		line := w.pending[:index+1]

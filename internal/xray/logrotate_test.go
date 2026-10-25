@@ -32,6 +32,25 @@ func TestSegmentedLogWriterBuffersPartialLines(t *testing.T) {
 	}
 }
 
+func TestSegmentedLogWriterFlushesOversizedPartialLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "xray.out.log")
+	writer, err := openSegmentedLogWriter(path, 4*maxPendingLineBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := strings.Repeat("x", maxPendingLineBytes+17)
+	if _, err := writer.Write([]byte(input)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != input {
+		t.Fatalf("oversized partial line was not preserved: bytes=%d err=%v", len(data), err)
+	}
+}
+
 func TestSegmentedLogWriterRotatesCompleteLines(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "xray.err.log")
