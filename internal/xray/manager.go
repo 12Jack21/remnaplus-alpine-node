@@ -530,6 +530,7 @@ func (m *Manager) startProcessLocked() (*processState, error) {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Env = append(os.Environ(),
+		"TZ=UTC",
 		"XRAY_LOCATION_ASSET="+m.geoDir,
 		unixconfig.InternalTokenEnvVar+"="+m.token,
 	)

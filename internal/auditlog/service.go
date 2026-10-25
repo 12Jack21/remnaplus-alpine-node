@@ -42,12 +42,13 @@ type ChunkRequest struct {
 }
 
 type Chunk struct {
-	FileInode  *string  `json:"fileInode"`
-	Lines      []string `json:"lines"`
-	NextOffset int64    `json:"nextOffset"`
-	ReadStart  int64    `json:"readStart"`
-	Source     Source   `json:"source"`
-	TotalSize  int64    `json:"totalSize"`
+	FileInode   *string  `json:"fileInode"`
+	Lines       []string `json:"lines"`
+	LineOffsets []int64  `json:"lineOffsets"`
+	NextOffset  int64    `json:"nextOffset"`
+	ReadStart   int64    `json:"readStart"`
+	Source      Source   `json:"source"`
+	TotalSize   int64    `json:"totalSize"`
 }
 
 type SourceMetadata struct {
@@ -128,12 +129,13 @@ func (s *Service) ReadChunk(request ChunkRequest) (Chunk, error) {
 		readEnd = candidate
 	}
 	result := Chunk{
-		FileInode:  &inode,
-		Lines:      []string{},
-		NextOffset: snapshotEnd,
-		ReadStart:  readStart,
-		Source:     request.Source,
-		TotalSize:  snapshotEnd,
+		FileInode:   &inode,
+		Lines:       []string{},
+		LineOffsets: []int64{},
+		NextOffset:  snapshotEnd,
+		ReadStart:   readStart,
+		Source:      request.Source,
+		TotalSize:   snapshotEnd,
 	}
 	if readStart >= readEnd {
 		return result, nil
@@ -153,18 +155,22 @@ func (s *Service) ReadChunk(request ChunkRequest) (Chunk, error) {
 	if isInitialTail && readStart > 0 {
 		text, readStart = dropPartialFirstLine(text, readStart)
 	}
-	lines, nextOffset := splitCompleteLines(text, readStart)
+	lines, lineOffsets, nextOffset := splitCompleteLinesWithOffsets(text, readStart)
 	if request.FromTimestamp != nil {
 		filtered := make([]string, 0, len(lines))
-		for _, line := range lines {
+		filteredOffsets := make([]int64, 0, len(lines))
+		for index, line := range lines {
 			timestamp := parseTimestamp(line)
 			if timestamp == nil || !timestamp.Before(*request.FromTimestamp) {
 				filtered = append(filtered, line)
+				filteredOffsets = append(filteredOffsets, lineOffsets[index])
 			}
 		}
 		lines = filtered
+		lineOffsets = filteredOffsets
 	}
 	result.Lines = lines
+	result.LineOffsets = lineOffsets
 	result.ReadStart = readStart
 	result.NextOffset = nextOffset
 	return result, nil
@@ -257,20 +263,29 @@ func dropPartialFirstLine(text string, readStart int64) (string, int64) {
 }
 
 func splitCompleteLines(text string, readStart int64) ([]string, int64) {
+	lines, _, next := splitCompleteLinesWithOffsets(text, readStart)
+	return lines, next
+}
+
+func splitCompleteLinesWithOffsets(text string, readStart int64) ([]string, []int64, int64) {
 	lastNewline := strings.LastIndexByte(text, '\n')
 	if lastNewline < 0 {
-		return []string{}, readStart
+		return []string{}, []int64{}, readStart
 	}
 	complete := text[:lastNewline+1]
 	parts := strings.Split(complete, "\n")
 	lines := make([]string, 0, len(parts))
-	for _, line := range parts {
-		line = strings.TrimSuffix(line, "\r")
+	offsets := make([]int64, 0, len(parts))
+	position := readStart
+	for _, raw := range parts {
+		line := strings.TrimSuffix(raw, "\r")
 		if line != "" {
 			lines = append(lines, line)
+			offsets = append(offsets, position)
 		}
+		position += int64(len(raw) + 1)
 	}
-	return lines, readStart + int64(len(complete))
+	return lines, offsets, readStart + int64(len(complete))
 }
 
 func readWindow(file *os.File, offset, length int64) ([]byte, error) {

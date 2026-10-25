@@ -18,6 +18,7 @@ import (
 	"github.com/12Jack21/remnaplus-alpine-node/internal/doctor"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/httpserver"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/instance"
+	"github.com/12Jack21/remnaplus-alpine-node/internal/logging"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/netadmin"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/plugin"
 	"github.com/12Jack21/remnaplus-alpine-node/internal/secret"
@@ -28,6 +29,7 @@ import (
 )
 
 func main() {
+	logging.Configure(os.Stdout)
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "version", "-version", "--version":
@@ -55,14 +57,14 @@ func main() {
 	if lockErr != nil {
 		log.Printf("warning: duplicate-node guard unavailable: %v", lockErr)
 	} else if !acquired {
-		log.Fatal("another Remnawave Node is already running in this network namespace")
+		logging.Fatal("another Remnawave Node is already running in this network namespace")
 	} else {
 		defer instanceLock.Close()
 	}
 
 	cfg, err := config.Load(config.ResolveEnvPath())
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		logging.Fatal("load config: %v", err)
 	}
 	applyMemoryLimit(cfg.LowMemory)
 	bodylimit.Configure(cfg.LowMemory, cfg.BodyLimitMB)
@@ -72,12 +74,12 @@ func main() {
 
 	payload, err := secret.Parse(cfg.SecretKey)
 	if err != nil {
-		log.Fatalf("parse SECRET_KEY: %v", err)
+		logging.Fatal("parse SECRET_KEY: %v", err)
 	}
 
 	validator, err := auth.NewJWTValidator(payload.JWTPublicKey)
 	if err != nil {
-		log.Fatalf("initialize JWT validator: %v", err)
+		logging.Fatal("initialize JWT validator: %v", err)
 	}
 
 	manager, err := xray.NewManager(xray.Options{
@@ -92,7 +94,7 @@ func main() {
 		WarpProbePort:      cfg.WarpProbePort,
 	})
 	if err != nil {
-		log.Fatalf("initialize Xray manager: %v", err)
+		logging.Fatal("initialize Xray manager: %v", err)
 	}
 
 	pluginState := plugin.NewState()
@@ -110,7 +112,7 @@ func main() {
 
 	server, err := httpserver.New(cfg, payload, validator, manager, pluginService, dropper)
 	if err != nil {
-		log.Fatalf("initialize HTTPS server: %v", err)
+		logging.Fatal("initialize HTTPS server: %v", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -126,14 +128,14 @@ func main() {
 	go func() {
 		log.Printf("internal config socket listening on %s", cfg.InternalSocketPath)
 		if err := unixServer.ListenAndServe(ctx); err != nil {
-			log.Fatalf("internal config socket stopped: %v", err)
+			logging.Fatal("internal config socket stopped: %v", err)
 		}
 	}()
 
 	go func() {
 		log.Printf("github.com/12Jack21/remnaplus-alpine-node listening on %s", cfg.HTTPAddr())
 		if err := server.ListenAndServeTLS(); err != nil {
-			log.Fatalf("HTTPS server stopped: %v", err)
+			logging.Fatal("HTTPS server stopped: %v", err)
 		}
 	}()
 
