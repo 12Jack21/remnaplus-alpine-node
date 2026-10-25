@@ -423,10 +423,17 @@ func cleanSealedSegments(activePath string, cutoff time.Time, allowed map[string
 			return CleanResult{}, err
 		}
 	}
-	result.Gaps, err = readGapJournal(activePath + ".gaps.jsonl")
+	result.Gaps, err = readGapJournal(filepath.Join(filepath.Dir(activePath), ".audit-gaps.jsonl"))
 	if err != nil {
 		return CleanResult{}, err
 	}
+	filteredGaps := result.Gaps[:0]
+	for _, gap := range result.Gaps {
+		if gap.Source == source {
+			filteredGaps = append(filteredGaps, gap)
+		}
+	}
+	result.Gaps = filteredGaps
 	return result, nil
 }
 
