@@ -81,11 +81,11 @@ func decodeAuditChunkRequest(values url.Values) (auditlog.ChunkRequest, error) {
 	if err != nil {
 		return auditlog.ChunkRequest{}, err
 	}
-	offset, err := optionalAuditInt(values, "offset", 0, 0)
+	offset, err := optionalAuditIntText(values, "offsetText", "offset", 0, 0)
 	if err != nil {
 		return auditlog.ChunkRequest{}, err
 	}
-	endOffset, err := optionalAuditInt(values, "endOffset", 0, 0)
+	endOffset, err := optionalAuditIntText(values, "endOffsetText", "endOffset", 0, 0)
 	if err != nil {
 		return auditlog.ChunkRequest{}, err
 	}
@@ -147,4 +147,11 @@ func optionalAuditInt(values url.Values, key string, minimum, maximum int64) (*i
 		return nil, fmt.Errorf("%s must be at least %d", key, minimum)
 	}
 	return &value, nil
+}
+
+func optionalAuditIntText(values url.Values, preferred, fallback string, minimum, maximum int64) (*int64, error) {
+	if values.Has(preferred) {
+		return optionalAuditInt(values, preferred, minimum, maximum)
+	}
+	return optionalAuditInt(values, fallback, minimum, maximum)
 }

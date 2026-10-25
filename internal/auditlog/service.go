@@ -42,13 +42,17 @@ type ChunkRequest struct {
 }
 
 type Chunk struct {
-	FileInode   *string  `json:"fileInode"`
-	Lines       []string `json:"lines"`
-	LineOffsets []int64  `json:"lineOffsets"`
-	NextOffset  int64    `json:"nextOffset"`
-	ReadStart   int64    `json:"readStart"`
-	Source      Source   `json:"source"`
-	TotalSize   int64    `json:"totalSize"`
+	FileInode       *string  `json:"fileInode"`
+	Lines           []string `json:"lines"`
+	LineOffsets     []int64  `json:"lineOffsets"`
+	LineOffsetsText []string `json:"lineOffsetsText"`
+	NextOffset      int64    `json:"nextOffset"`
+	NextOffsetText  string   `json:"nextOffsetText"`
+	ReadStart       int64    `json:"readStart"`
+	ReadStartText   string   `json:"readStartText"`
+	Source          Source   `json:"source"`
+	TotalSize       int64    `json:"totalSize"`
+	TotalSizeText   string   `json:"totalSizeText"`
 }
 
 type SourceMetadata struct {
@@ -129,13 +133,17 @@ func (s *Service) ReadChunk(request ChunkRequest) (Chunk, error) {
 		readEnd = candidate
 	}
 	result := Chunk{
-		FileInode:   &inode,
-		Lines:       []string{},
-		LineOffsets: []int64{},
-		NextOffset:  snapshotEnd,
-		ReadStart:   readStart,
-		Source:      request.Source,
-		TotalSize:   snapshotEnd,
+		FileInode:       &inode,
+		Lines:           []string{},
+		LineOffsets:     []int64{},
+		LineOffsetsText: []string{},
+		NextOffset:      snapshotEnd,
+		NextOffsetText:  strconv.FormatInt(snapshotEnd, 10),
+		ReadStart:       readStart,
+		ReadStartText:   strconv.FormatInt(readStart, 10),
+		Source:          request.Source,
+		TotalSize:       snapshotEnd,
+		TotalSizeText:   strconv.FormatInt(snapshotEnd, 10),
 	}
 	if readStart >= readEnd {
 		return result, nil
@@ -171,8 +179,16 @@ func (s *Service) ReadChunk(request ChunkRequest) (Chunk, error) {
 	}
 	result.Lines = lines
 	result.LineOffsets = lineOffsets
+	result.LineOffsetsText = make([]string, len(lineOffsets))
+	for index, offset := range lineOffsets {
+		result.LineOffsetsText[index] = strconv.FormatInt(offset, 10)
+	}
 	result.ReadStart = readStart
+	result.ReadStartText = strconv.FormatInt(readStart, 10)
 	result.NextOffset = nextOffset
+	result.NextOffsetText = strconv.FormatInt(nextOffset, 10)
+	result.TotalSize = snapshotEnd
+	result.TotalSizeText = strconv.FormatInt(snapshotEnd, 10)
 	return result, nil
 }
 
