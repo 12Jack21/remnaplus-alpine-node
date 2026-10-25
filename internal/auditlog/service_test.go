@@ -203,7 +203,10 @@ func TestCleanLogsOnlyRemovesOldSealedSegments(t *testing.T) {
 	}
 	service := NewService(accessPath, errorPath)
 	cutoff := time.Date(2026, time.July, 18, 0, 0, 0, 0, time.UTC)
-	result, err := service.CleanLogsAt(cutoff)
+	result, err := service.CleanLogsAt(cutoff, map[string]struct{}{
+		filepath.Base(oldSegment): {},
+		filepath.Base(newSegment): {},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

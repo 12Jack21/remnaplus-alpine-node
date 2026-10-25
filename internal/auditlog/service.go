@@ -1,6 +1,8 @@
 package auditlog
 
 import (
+	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -72,10 +74,20 @@ type Segment struct {
 }
 
 type CleanResult struct {
-	Files          int `json:"files"`
-	KeptLines      int `json:"keptLines"`
-	RemovedLines   int `json:"removedLines"`
-	ReclaimedBytes int `json:"reclaimedBytes"`
+	Files          int   `json:"files"`
+	KeptLines      int   `json:"keptLines"`
+	RemovedLines   int   `json:"removedLines"`
+	ReclaimedBytes int   `json:"reclaimedBytes"`
+	Gaps           []Gap `json:"gaps"`
+}
+
+type Gap struct {
+	Source      Source `json:"source"`
+	SegmentID   string `json:"segmentId"`
+	StartOffset int64  `json:"startOffset"`
+	EndOffset   int64  `json:"endOffset"`
+	OccurredAt  string `json:"occurredAt"`
+	Reason      string `json:"reason"`
 }
 
 type Service struct {
@@ -296,18 +308,22 @@ func (s *Service) Catalog(source Source) ([]Segment, error) {
 	return segments, nil
 }
 
-func (s *Service) CleanLogs(retentionDays int) (CleanResult, error) {
+func (s *Service) CleanLogs(retentionDays int, safeSegmentIDs ...map[string]struct{}) (CleanResult, error) {
 	if retentionDays <= 0 {
 		return CleanResult{}, fmt.Errorf("retentionDays must be positive")
 	}
-	return s.CleanLogsAt(time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour))
+	return s.CleanLogsAt(time.Now().Add(-time.Duration(retentionDays)*24*time.Hour), safeSegmentIDs...)
 }
 
-func (s *Service) CleanLogsAt(cutoff time.Time) (CleanResult, error) {
+func (s *Service) CleanLogsAt(cutoff time.Time, safeSegmentIDs ...map[string]struct{}) (CleanResult, error) {
 	paths := []string{s.accessPath, s.errorPath}
 	result := CleanResult{}
+	allowed := map[string]struct{}{}
+	if len(safeSegmentIDs) > 0 && safeSegmentIDs[0] != nil {
+		allowed = safeSegmentIDs[0]
+	}
 	for _, path := range paths {
-		item, err := cleanSealedSegments(path, cutoff)
+		item, err := cleanSealedSegments(path, cutoff, allowed)
 		if err != nil {
 			return CleanResult{}, err
 		}
@@ -315,6 +331,7 @@ func (s *Service) CleanLogsAt(cutoff time.Time) (CleanResult, error) {
 		result.KeptLines += item.KeptLines
 		result.RemovedLines += item.RemovedLines
 		result.ReclaimedBytes += item.ReclaimedBytes
+		result.Gaps = append(result.Gaps, item.Gaps...)
 	}
 	return result, nil
 }
@@ -323,7 +340,7 @@ func (s *Service) CleanLogsAt(cutoff time.Time) (CleanResult, error) {
 // Xray keeps that file open, and replacing or truncating it would lose bytes
 // after the writer has opened the old inode. Legacy active files are therefore
 // retained until a managed writer seals them into a removable segment.
-func cleanSealedSegments(activePath string, cutoff time.Time) (CleanResult, error) {
+func cleanSealedSegments(activePath string, cutoff time.Time, allowed map[string]struct{}) (CleanResult, error) {
 	entries, err := os.ReadDir(filepath.Dir(activePath))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -333,10 +350,41 @@ func cleanSealedSegments(activePath string, cutoff time.Time) (CleanResult, erro
 	}
 	prefix := filepath.Base(activePath) + ".segment-"
 	result := CleanResult{}
+	source := SourceError
+	if filepath.Base(activePath) == "access.log" {
+		source = SourceAccess
+	}
+	var journal *os.File
+	defer func() {
+		if journal != nil {
+			_ = journal.Close()
+		}
+	}()
+
+	appendGap := func(gap Gap) error {
+		if journal == nil {
+			file, openErr := os.OpenFile(filepath.Join(filepath.Dir(activePath), ".audit-gaps.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+			if openErr != nil {
+				return openErr
+			}
+			journal = file
+		}
+		encoded, encodeErr := json.Marshal(gap)
+		if encodeErr != nil {
+			return encodeErr
+		}
+		if _, writeErr := journal.Write(append(encoded, '\n')); writeErr != nil {
+			return writeErr
+		}
+		return journal.Sync()
+	}
 	removed := false
 	for _, entry := range entries {
 		name := entry.Name()
 		if !entry.Type().IsRegular() || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".sealed") {
+			continue
+		}
+		if _, ok := allowed[name]; !ok {
 			continue
 		}
 		match := strings.TrimSuffix(strings.TrimPrefix(name, prefix), ".sealed")
@@ -355,11 +403,19 @@ func cleanSealedSegments(activePath string, cutoff time.Time) (CleanResult, erro
 			}
 			return CleanResult{}, statErr
 		}
+		gap := Gap{
+			Source: source, SegmentID: name, StartOffset: 0, EndOffset: info.Size(),
+			OccurredAt: time.Now().UTC().Format(time.RFC3339Nano), Reason: "retention",
+		}
+		if err := appendGap(gap); err != nil {
+			return CleanResult{}, err
+		}
 		if err := os.Remove(segmentPath); err != nil {
 			return CleanResult{}, err
 		}
 		result.Files++
 		result.ReclaimedBytes += int(info.Size())
+		result.Gaps = append(result.Gaps, gap)
 		removed = true
 	}
 	if removed {
@@ -367,7 +423,36 @@ func cleanSealedSegments(activePath string, cutoff time.Time) (CleanResult, erro
 			return CleanResult{}, err
 		}
 	}
+	result.Gaps, err = readGapJournal(activePath + ".gaps.jsonl")
+	if err != nil {
+		return CleanResult{}, err
+	}
 	return result, nil
+}
+
+func readGapJournal(path string) ([]Gap, error) {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return []Gap{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 4*1024), 1024*1024)
+	gaps := make([]Gap, 0)
+	for scanner.Scan() {
+		var gap Gap
+		if err := json.Unmarshal(scanner.Bytes(), &gap); err != nil {
+			return nil, fmt.Errorf("invalid audit log gap journal %s: %w", path, err)
+		}
+		gaps = append(gaps, gap)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return gaps, nil
 }
 
 func syncDirectory(path string) error {

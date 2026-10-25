@@ -80,13 +80,26 @@ func (s *Server) handleCleanAuditLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 	var request struct {
-		RetentionDays int `json:"retentionDays"`
+		RetentionDays  int      `json:"retentionDays"`
+		SafeSegmentIDs []string `json:"safeSegmentIds"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.RetentionDays <= 0 {
 		writeError(w, http.StatusBadRequest, "retentionDays must be a positive integer")
 		return
 	}
-	result, err := s.auditLogService.CleanLogs(request.RetentionDays)
+	if len(request.SafeSegmentIDs) > 10_000 {
+		writeError(w, http.StatusBadRequest, "safeSegmentIds contains too many entries")
+		return
+	}
+	allowed := make(map[string]struct{}, len(request.SafeSegmentIDs))
+	for _, id := range request.SafeSegmentIDs {
+		if id == "" || len(id) > 255 || strings.ContainsAny(id, "/\\") {
+			writeError(w, http.StatusBadRequest, "safeSegmentIds contains an invalid entry")
+			return
+		}
+		allowed[id] = struct{}{}
+	}
+	result, err := s.auditLogService.CleanLogs(request.RetentionDays, allowed)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to clean audit logs")
 		return
