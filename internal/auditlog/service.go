@@ -1,7 +1,6 @@
 package auditlog
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -308,7 +307,7 @@ func (s *Service) CleanLogsAt(cutoff time.Time) (CleanResult, error) {
 	paths := []string{s.accessPath, s.errorPath}
 	result := CleanResult{}
 	for _, path := range paths {
-		item, err := compactFile(path, cutoff)
+		item, err := cleanSealedSegments(path, cutoff)
 		if err != nil {
 			return CleanResult{}, err
 		}
@@ -318,6 +317,66 @@ func (s *Service) CleanLogsAt(cutoff time.Time) (CleanResult, error) {
 		result.ReclaimedBytes += item.ReclaimedBytes
 	}
 	return result, nil
+}
+
+// cleanSealedSegments deliberately leaves the active destination untouched.
+// Xray keeps that file open, and replacing or truncating it would lose bytes
+// after the writer has opened the old inode. Legacy active files are therefore
+// retained until a managed writer seals them into a removable segment.
+func cleanSealedSegments(activePath string, cutoff time.Time) (CleanResult, error) {
+	entries, err := os.ReadDir(filepath.Dir(activePath))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return CleanResult{}, nil
+		}
+		return CleanResult{}, err
+	}
+	prefix := filepath.Base(activePath) + ".segment-"
+	result := CleanResult{}
+	removed := false
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.Type().IsRegular() || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".sealed") {
+			continue
+		}
+		match := strings.TrimSuffix(strings.TrimPrefix(name, prefix), ".sealed")
+		if len(match) < len("20060102-") || match[8] != '-' {
+			continue
+		}
+		day, parseErr := time.Parse("20060102", match[:8])
+		if parseErr != nil || !day.Before(cutoff) {
+			continue
+		}
+		segmentPath := filepath.Join(filepath.Dir(activePath), name)
+		info, statErr := os.Stat(segmentPath)
+		if statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) {
+				continue
+			}
+			return CleanResult{}, statErr
+		}
+		if err := os.Remove(segmentPath); err != nil {
+			return CleanResult{}, err
+		}
+		result.Files++
+		result.ReclaimedBytes += int(info.Size())
+		removed = true
+	}
+	if removed {
+		if err := syncDirectory(filepath.Dir(activePath)); err != nil {
+			return CleanResult{}, err
+		}
+	}
+	return result, nil
+}
+
+func syncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 func (s *Service) pathFor(source Source) (string, error) {
@@ -376,78 +435,6 @@ func readWindow(file *os.File, offset, length int64) ([]byte, error) {
 		return nil, err
 	}
 	return buffer[:n], nil
-}
-
-func compactFile(path string, cutoff time.Time) (CleanResult, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return CleanResult{}, nil
-		}
-		return CleanResult{}, err
-	}
-	input, err := os.Open(path)
-	if err != nil {
-		return CleanResult{}, err
-	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-clean-")
-	if err != nil {
-		input.Close()
-		return CleanResult{}, err
-	}
-	temporaryPath := temporary.Name()
-	removeTemporary := true
-	defer func() {
-		input.Close()
-		temporary.Close()
-		if removeTemporary {
-			_ = os.Remove(temporaryPath)
-		}
-	}()
-	if err := temporary.Chmod(info.Mode().Perm()); err != nil {
-		return CleanResult{}, err
-	}
-	scanner := bufio.NewScanner(input)
-	scanner.Buffer(make([]byte, 64*1024), int(defaultMaxReadBytes))
-	writer := bufio.NewWriter(temporary)
-	result := CleanResult{Files: 1}
-	for scanner.Scan() {
-		line := strings.TrimSuffix(scanner.Text(), "\r")
-		timestamp := parseTimestamp(line)
-		if timestamp != nil && timestamp.Before(cutoff) {
-			result.RemovedLines++
-			continue
-		}
-		if _, err := writer.WriteString(line + "\n"); err != nil {
-			return CleanResult{}, err
-		}
-		result.KeptLines++
-	}
-	if err := scanner.Err(); err != nil {
-		return CleanResult{}, err
-	}
-	if err := writer.Flush(); err != nil {
-		return CleanResult{}, err
-	}
-	if err := temporary.Sync(); err != nil {
-		return CleanResult{}, err
-	}
-	if err := temporary.Close(); err != nil {
-		return CleanResult{}, err
-	}
-	if err := input.Close(); err != nil {
-		return CleanResult{}, err
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return CleanResult{}, err
-	}
-	removeTemporary = false
-	after, err := os.Stat(path)
-	if err != nil {
-		return CleanResult{}, err
-	}
-	result.ReclaimedBytes = int(info.Size() - after.Size())
-	return result, nil
 }
 
 func parseTimestamp(line string) *time.Time {

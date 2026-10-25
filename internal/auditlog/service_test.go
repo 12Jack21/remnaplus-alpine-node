@@ -180,19 +180,25 @@ func TestSourceMetadataAndAbsentFiles(t *testing.T) {
 	}
 }
 
-func TestCleanLogsStreamsRetentionAndPreservesUnparseableLines(t *testing.T) {
+func TestCleanLogsOnlyRemovesOldSealedSegments(t *testing.T) {
 	t.Parallel()
 
 	directory := t.TempDir()
 	accessPath := filepath.Join(directory, "access.log")
 	errorPath := filepath.Join(directory, "error.log")
-	old := "2026/07/17 00:00:00 old"
-	newLine := "2026/07/19 00:00:00 new"
-	noise := "unparseable must survive"
-	if err := os.WriteFile(accessPath, []byte(strings.Join([]string{old, newLine, noise}, "\n")+"\n"), 0o640); err != nil {
+	active := "2026/07/17 00:00:00 active old\n"
+	if err := os.WriteFile(accessPath, []byte(active), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(errorPath, []byte(strings.Join([]string{old, newLine}, "\n")+"\n"), 0o640); err != nil {
+	if err := os.WriteFile(errorPath, []byte("active error\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	oldSegment := accessPath + ".segment-20260717-000001.sealed"
+	newSegment := accessPath + ".segment-20260719-000001.sealed"
+	if err := os.WriteFile(oldSegment, []byte("old sealed\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newSegment, []byte("new sealed\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 	service := NewService(accessPath, errorPath)
@@ -201,26 +207,25 @@ func TestCleanLogsStreamsRetentionAndPreservesUnparseableLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Files != 2 || result.RemovedLines != 2 || result.KeptLines != 3 {
+	if result.Files != 1 || result.RemovedLines != 0 || result.KeptLines != 0 {
 		t.Fatalf("cleanup = %+v", result)
 	}
 	cleaned, err := os.ReadFile(accessPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(cleaned) != newLine+"\n"+noise+"\n" {
-		t.Fatalf("cleaned access log = %q", cleaned)
+	if string(cleaned) != active {
+		t.Fatalf("active log changed = %q", cleaned)
 	}
-	mode, err := os.Stat(accessPath)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(oldSegment); !os.IsNotExist(err) {
+		t.Fatalf("old sealed segment still exists: %v", err)
 	}
-	if mode.Mode().Perm() != 0o640 {
-		t.Fatalf("mode = %o, want 640", mode.Mode().Perm())
+	if _, err := os.Stat(newSegment); err != nil {
+		t.Fatalf("new sealed segment missing: %v", err)
 	}
 }
 
-func TestCleanLogsPreservesLargeUnparseableLine(t *testing.T) {
+func TestCleanLogsPreservesActiveLargeUnparseableLine(t *testing.T) {
 	t.Parallel()
 
 	directory := t.TempDir()
@@ -234,8 +239,15 @@ func TestCleanLogsPreservesLargeUnparseableLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.KeptLines != 1 || result.RemovedLines != 0 {
+	if result.Files != 0 || result.KeptLines != 0 || result.RemovedLines != 0 {
 		t.Fatalf("cleanup = %+v", result)
+	}
+	cleaned, err := os.ReadFile(accessPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(cleaned) != largeLine+"\n" {
+		t.Fatal("active unparseable log was modified")
 	}
 }
 
