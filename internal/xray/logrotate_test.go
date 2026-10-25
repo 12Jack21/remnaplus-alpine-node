@@ -114,3 +114,47 @@ func TestSegmentedLogWriterDoesNotReplaceExistingSealedGeneration(t *testing.T) 
 		t.Fatalf("existing sealed segment changed to %q err=%v", data, err)
 	}
 }
+
+func TestSegmentedLogWriterRecoversRotationJournal(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "xray.out.log")
+	sealed := path + ".segment-20261025-000001.sealed"
+	if err := os.WriteFile(path, []byte("recover me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+".rotation.json", []byte(`{"active":"`+path+`","sealed":"`+sealed+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := openSegmentedLogWriter(path, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(sealed)
+	if err != nil || string(data) != "recover me\n" {
+		t.Fatalf("sealed=%q err=%v", data, err)
+	}
+	if _, err := os.Stat(path + ".rotation.json"); !os.IsNotExist(err) {
+		t.Fatalf("rotation journal remains: %v", err)
+	}
+}
+
+func TestSegmentedLogWriterRejectsRotationJournalCollision(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "xray.err.log")
+	sealed := path + ".segment-20261025-000001.sealed"
+	if err := os.WriteFile(path, []byte("active\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sealed, []byte("sealed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+".rotation.json", []byte(`{"active":"`+path+`","sealed":"`+sealed+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openSegmentedLogWriter(path, 1024); err == nil || !strings.Contains(err.Error(), "collision") {
+		t.Fatalf("expected recovery collision, got %v", err)
+	}
+}

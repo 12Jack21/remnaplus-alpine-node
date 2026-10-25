@@ -3,6 +3,7 @@ package xray
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -43,6 +44,9 @@ type segmentedLogWriter struct {
 
 func openSegmentedLogWriter(path string, maxSize int64) (*segmentedLogWriter, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	if err := recoverSegmentRotation(path); err != nil {
 		return nil, err
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -111,9 +115,6 @@ func (w *segmentedLogWriter) seal(today string) error {
 	if err := w.file.Sync(); err != nil {
 		return err
 	}
-	if err := w.file.Close(); err != nil {
-		return err
-	}
 	sealed := ""
 	for {
 		w.segment++
@@ -125,7 +126,44 @@ func (w *segmentedLogWriter) seal(today string) error {
 			return err
 		}
 	}
+	journalPath := w.path + ".rotation.json"
+	journalBytes, err := json.Marshal(struct {
+		Active string `json:"active"`
+		Sealed string `json:"sealed"`
+	}{Active: w.path, Sealed: sealed})
+	if err != nil {
+		return err
+	}
+	journal, err := os.OpenFile(journalPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err = journal.Write(journalBytes); err == nil {
+		err = journal.Sync()
+	}
+	closeErr := journal.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if err := syncDirectory(filepath.Dir(w.path)); err != nil {
+		return err
+	}
+	if err := w.file.Close(); err != nil {
+		return err
+	}
 	if err := os.Rename(w.path, sealed); err != nil {
+		return err
+	}
+	if err := syncDirectory(filepath.Dir(w.path)); err != nil {
+		return err
+	}
+	if err := os.Remove(journalPath); err != nil {
+		return err
+	}
+	if err := syncDirectory(filepath.Dir(w.path)); err != nil {
 		return err
 	}
 	file, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -151,4 +189,64 @@ func (w *segmentedLogWriter) Close() error {
 		return err
 	}
 	return w.file.Close()
+}
+
+func recoverSegmentRotation(active string) error {
+	journalPath := active + ".rotation.json"
+	data, err := os.ReadFile(journalPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var journal struct {
+		Active string `json:"active"`
+		Sealed string `json:"sealed"`
+	}
+	if err := json.Unmarshal(data, &journal); err != nil {
+		return fmt.Errorf("invalid rotation journal %s: %w", journalPath, err)
+	}
+	sealedPrefix := filepath.Base(active) + ".segment-"
+	if journal.Active != active || filepath.Dir(journal.Sealed) != filepath.Dir(active) ||
+		!strings.HasPrefix(filepath.Base(journal.Sealed), sealedPrefix) ||
+		!strings.HasSuffix(journal.Sealed, ".sealed") {
+		return fmt.Errorf("invalid rotation journal paths in %s", journalPath)
+	}
+	_, activeErr := os.Stat(active)
+	_, sealedErr := os.Stat(journal.Sealed)
+	activeExists := activeErr == nil
+	sealedExists := sealedErr == nil
+	if activeErr != nil && !errors.Is(activeErr, os.ErrNotExist) {
+		return activeErr
+	}
+	if sealedErr != nil && !errors.Is(sealedErr, os.ErrNotExist) {
+		return sealedErr
+	}
+	if activeExists && sealedExists {
+		return fmt.Errorf("rotation recovery collision: both %s and %s exist", active, journal.Sealed)
+	}
+	if activeExists {
+		if err := os.Rename(active, journal.Sealed); err != nil {
+			return err
+		}
+	} else if !sealedExists {
+		return fmt.Errorf("rotation recovery lost both active and sealed log: %s", active)
+	}
+	if err := syncDirectory(filepath.Dir(active)); err != nil {
+		return err
+	}
+	if err := os.Remove(journalPath); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(active))
+}
+
+func syncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
