@@ -195,23 +195,37 @@ func TestCleanLogsOnlyRemovesOldSealedSegments(t *testing.T) {
 	}
 	oldSegment := accessPath + ".segment-20260717-000001.sealed"
 	newSegment := accessPath + ".segment-20260719-000001.sealed"
+	oldErrorSegment := errorPath + ".segment-20260717-000001.sealed"
 	if err := os.WriteFile(oldSegment, []byte("old sealed\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(newSegment, []byte("new sealed\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(oldErrorSegment, []byte("old error sealed\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
 	service := NewService(accessPath, errorPath)
 	cutoff := time.Date(2026, time.July, 18, 0, 0, 0, 0, time.UTC)
 	result, err := service.CleanLogsAt(cutoff, map[string]struct{}{
-		filepath.Base(oldSegment): {},
-		filepath.Base(newSegment): {},
+		filepath.Base(oldSegment):      {},
+		filepath.Base(newSegment):      {},
+		filepath.Base(oldErrorSegment): {},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Files != 1 || result.RemovedLines != 0 || result.KeptLines != 0 {
+	if result.Files != 2 || result.RemovedLines != 0 || result.KeptLines != 0 {
 		t.Fatalf("cleanup = %+v", result)
+	}
+	if len(result.Gaps) != 2 {
+		t.Fatalf("gaps = %+v, want both shared journal entries", result.Gaps)
+	}
+	if result.Gaps[0].Source != SourceAccess || result.Gaps[1].Source != SourceError {
+		t.Fatalf("gap sources = %+v", result.Gaps)
+	}
+	if _, err := os.Stat(filepath.Join(directory, ".audit-gaps.jsonl")); err != nil {
+		t.Fatalf("shared gap journal missing: %v", err)
 	}
 	cleaned, err := os.ReadFile(accessPath)
 	if err != nil {
