@@ -55,6 +55,24 @@ func (s *Server) handleGetAuditLogSourceMetadata(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, envelope[auditlog.SourceMetadata]{Response: metadata})
 }
 
+func (s *Server) handleGetAuditLogCatalog(w http.ResponseWriter, r *http.Request) {
+	if s.auditLogService == nil {
+		writeError(w, http.StatusInternalServerError, "audit log service unavailable")
+		return
+	}
+	source, err := decodeAuditSource(r.URL.Query().Get("source"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	segments, err := s.auditLogService.Catalog(source)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read audit log catalog")
+		return
+	}
+	writeJSON(w, http.StatusOK, envelope[[]auditlog.Segment]{Response: segments})
+}
+
 func (s *Server) handleCleanAuditLogs(w http.ResponseWriter, r *http.Request) {
 	if s.auditLogService == nil {
 		writeError(w, http.StatusInternalServerError, "audit log service unavailable")

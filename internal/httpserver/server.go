@@ -142,6 +142,8 @@ func (s *Server) handleNodeRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleGetAuditLogChunk(w, r)
 	case r.Method == http.MethodGet && path == "/node/stats/get-audit-log-source-metadata":
 		s.handleGetAuditLogSourceMetadata(w, r)
+	case r.Method == http.MethodGet && path == "/node/stats/get-audit-log-segments-v2":
+		s.handleGetAuditLogCatalog(w, r)
 	case r.Method == http.MethodPost && path == "/node/stats/clean-audit-logs":
 		s.handleCleanAuditLogs(w, r)
 	case r.Method == http.MethodPost && path == "/node/stats/get-users-stats":

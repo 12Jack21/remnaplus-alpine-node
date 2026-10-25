@@ -63,6 +63,14 @@ type SourceMetadata struct {
 	TotalSize         int64      `json:"totalSize"`
 }
 
+type Segment struct {
+	ID     string `json:"id"`
+	Inode  string `json:"inode"`
+	Size   int64  `json:"size"`
+	Sealed bool   `json:"sealed"`
+	Source Source `json:"source"`
+}
+
 type CleanResult struct {
 	Files          int `json:"files"`
 	KeptLines      int `json:"keptLines"`
@@ -230,6 +238,33 @@ func (s *Service) SourceMetadata(source Source) (SourceMetadata, error) {
 	metadata.EarliestTimestamp = firstTimestamp(string(head))
 	metadata.LatestTimestamp = lastTimestamp(string(tail))
 	return metadata, nil
+}
+
+func (s *Service) Catalog(source Source) ([]Segment, error) {
+	path, err := s.pathFor(source)
+	if err != nil {
+		return nil, err
+	}
+	paths, err := filepath.Glob(path + ".segment-*.sealed")
+	if err != nil {
+		return nil, err
+	}
+	paths = append(paths, path)
+	segments := make([]Segment, 0, len(paths))
+	for _, candidate := range paths {
+		info, statErr := os.Stat(candidate)
+		if statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) {
+				continue
+			}
+			return nil, statErr
+		}
+		segments = append(segments, Segment{
+			ID: filepath.Base(candidate), Inode: inodeString(info), Size: info.Size(),
+			Sealed: candidate != path, Source: source,
+		})
+	}
+	return segments, nil
 }
 
 func (s *Service) CleanLogs(retentionDays int) (CleanResult, error) {
