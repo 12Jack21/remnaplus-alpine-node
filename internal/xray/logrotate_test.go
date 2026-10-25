@@ -158,3 +158,31 @@ func TestSegmentedLogWriterRejectsRotationJournalCollision(t *testing.T) {
 		t.Fatalf("expected recovery collision, got %v", err)
 	}
 }
+
+func TestSegmentedLogWriterNamesMidnightSegmentByItsContentsDate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "xray.out.log")
+	writer, err := openSegmentedLogWriter(path, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte("previous day\n")); err != nil {
+		t.Fatal(err)
+	}
+	writer.openDate = "20261024"
+	if _, err := writer.Write([]byte("current day\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sealed := path + ".segment-20261024-000001.sealed"
+	data, err := os.ReadFile(sealed)
+	if err != nil || string(data) != "previous day\n" {
+		t.Fatalf("sealed=%q err=%v", data, err)
+	}
+	active, err := os.ReadFile(path)
+	if err != nil || string(active) != "current day\n" {
+		t.Fatalf("active=%q err=%v", active, err)
+	}
+}

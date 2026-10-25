@@ -118,7 +118,7 @@ func (w *segmentedLogWriter) seal(today string) error {
 	sealed := ""
 	for {
 		w.segment++
-		candidate := fmt.Sprintf("%s.segment-%s-%06d.sealed", w.path, today, w.segment)
+		candidate := fmt.Sprintf("%s.segment-%s-%06d.sealed", w.path, w.openDate, w.segment)
 		if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
 			sealed = candidate
 			break
