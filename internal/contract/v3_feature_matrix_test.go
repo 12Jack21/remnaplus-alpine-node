@@ -13,7 +13,7 @@ func TestV3FeatureMatrixKeepsAlpineBoundaries(t *testing.T) {
 	}
 	text := string(versionSource)
 	for _, required := range []string{
-		`Version = "1.0.10"`,
+		`Version = "1.0.11"`,
 		`ContractVersion = "2.8.0"`,
 	} {
 		if !strings.Contains(text, required) {
