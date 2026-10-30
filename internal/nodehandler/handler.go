@@ -68,14 +68,27 @@ func (s *Service) HandleAddUser(w http.ResponseWriter, r *http.Request, write wr
 	}
 
 	username := req.Data[0].Username
+	removalResults := make([]xtls.HandlerResult, 0, len(s.provider.InboundTags()))
+	removalFailed := false
 	if username != "" {
 		for _, tag := range s.provider.InboundTags() {
-			s.provider.HandlerRemoveUser(r.Context(), tag, username)
-			s.provider.RemoveUserFromInboundHash(tag, hashUUID)
+			result := s.provider.HandlerRemoveUser(r.Context(), tag, username)
+			removalResults = append(removalResults, result)
+			if !result.OK {
+				removalFailed = true
+			}
+			if result.OK {
+				s.provider.RemoveUserFromInboundHash(tag, hashUUID)
+			}
 		}
 	}
+	if removalFailed {
+		write(w, http.StatusOK, envelope[genericResponse]{Response: aggregateResults(removalResults)})
+		return
+	}
 
-	results := make([]xtls.HandlerResult, 0, len(req.Data))
+	results := make([]xtls.HandlerResult, 0, len(removalResults)+len(req.Data))
+	results = append(results, removalResults...)
 	for _, item := range req.Data {
 		result := s.addSingleUser(r.Context(), item)
 		if result.OK {
@@ -104,8 +117,11 @@ func (s *Service) HandleRemoveUser(w http.ResponseWriter, r *http.Request, write
 	userIPs := collectUserIPs(r.Context(), s.provider, req.Username)
 	results := make([]xtls.HandlerResult, 0, len(tags))
 	for _, tag := range tags {
-		results = append(results, s.provider.HandlerRemoveUser(r.Context(), tag, req.Username))
-		s.provider.RemoveUserFromInboundHash(tag, req.HashData.VlessUUID)
+		result := s.provider.HandlerRemoveUser(r.Context(), tag, req.Username)
+		results = append(results, result)
+		if result.OK {
+			s.provider.RemoveUserFromInboundHash(tag, req.HashData.VlessUUID)
+		}
 	}
 	s.dropIPs(userIPs)
 	write(w, http.StatusOK, envelope[genericResponse]{Response: aggregateResults(results)})
@@ -123,24 +139,35 @@ func (s *Service) HandleAddUsers(w http.ResponseWriter, r *http.Request, write w
 		s.provider.AddInboundTag(tag)
 	}
 
+	results := make([]xtls.HandlerResult, 0)
 	for _, user := range req.Users {
 		for _, inbound := range user.InboundData {
 			s.provider.AddInboundTag(inbound.Tag)
 		}
+		removalFailed := false
 		for _, tag := range s.provider.InboundTags() {
-			s.provider.HandlerRemoveUser(r.Context(), tag, user.UserData.UserID)
-			s.provider.RemoveUserFromInboundHash(tag, user.UserData.HashUUID)
+			result := s.provider.HandlerRemoveUser(r.Context(), tag, user.UserData.UserID)
+			results = append(results, result)
+			if !result.OK {
+				removalFailed = true
+			}
+			if result.OK {
+				s.provider.RemoveUserFromInboundHash(tag, user.UserData.HashUUID)
+			}
+		}
+		if removalFailed {
+			continue
 		}
 		for _, inbound := range user.InboundData {
 			result := s.addBatchUser(r.Context(), inbound, user.UserData)
 			if result.OK {
 				s.provider.AddUserToInboundHash(inbound.Tag, user.UserData.VlessUUID)
 			}
+			results = append(results, result)
 		}
 	}
 
-	// Match upstream addUsers: always success:true on HTTP 200 (individual failures are silent).
-	write(w, http.StatusOK, envelope[genericResponse]{Response: genericResponse{Success: true, Error: nil}})
+	write(w, http.StatusOK, envelope[genericResponse]{Response: aggregateResults(results)})
 }
 
 func (s *Service) HandleRemoveUsers(w http.ResponseWriter, r *http.Request, write writeJSONFn) {
@@ -162,8 +189,11 @@ func (s *Service) HandleRemoveUsers(w http.ResponseWriter, r *http.Request, writ
 		userIPs := collectUserIPs(r.Context(), s.provider, user.UserID)
 		userTags := s.provider.InboundTags()
 		for _, tag := range userTags {
-			results = append(results, s.provider.HandlerRemoveUser(r.Context(), tag, user.UserID))
-			s.provider.RemoveUserFromInboundHash(tag, user.HashUUID)
+			result := s.provider.HandlerRemoveUser(r.Context(), tag, user.UserID)
+			results = append(results, result)
+			if result.OK {
+				s.provider.RemoveUserFromInboundHash(tag, user.HashUUID)
+			}
 		}
 		s.dropIPs(userIPs)
 	}
@@ -338,23 +368,14 @@ func aggregateResults(results []xtls.HandlerResult) genericResponse {
 		return genericResponse{Success: true, Error: nil}
 	}
 
-	allFailed := true
-	var firstError string
 	for _, result := range results {
-		if result.OK {
-			allFailed = false
-			continue
+		if !result.OK {
+			message := result.Message
+			if message == "" {
+				message = "handler operation failed"
+			}
+			return genericResponse{Success: false, Error: stringPtr(message)}
 		}
-		if firstError == "" && result.Message != "" {
-			firstError = result.Message
-		}
-	}
-
-	if allFailed {
-		if firstError == "" {
-			firstError = "all handler operations failed"
-		}
-		return genericResponse{Success: false, Error: stringPtr(firstError)}
 	}
 	return genericResponse{Success: true, Error: nil}
 }

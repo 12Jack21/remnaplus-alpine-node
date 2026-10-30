@@ -51,13 +51,29 @@ func (s *stubProvider) HandlerGetInboundUsersCount(context.Context, string) (int
 	return 0, xtls.HandlerResult{OK: true}
 }
 
+type partialRemovalProvider struct {
+	successVlessProvider
+	hashRemoves []string
+}
+
+func (p *partialRemovalProvider) HandlerRemoveUser(_ context.Context, tag, _ string) xtls.HandlerResult {
+	if tag == "revoked" {
+		return xtls.HandlerResult{OK: false, Message: "remove failed"}
+	}
+	return xtls.HandlerResult{OK: true}
+}
+
+func (p *partialRemovalProvider) RemoveUserFromInboundHash(tag, uuid string) {
+	p.hashRemoves = append(p.hashRemoves, tag+":"+uuid)
+}
+
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func TestHandleAddUsersAlwaysSuccess(t *testing.T) {
+func TestHandleAddUsersReportsAddFailure(t *testing.T) {
 	t.Parallel()
 
 	service := nodehandler.NewService(&stubProvider{}, connections.NewDropper(nil))
@@ -85,8 +101,78 @@ func TestHandleAddUsersAlwaysSuccess(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if !resp.Response.Success {
-		t.Fatalf("success = false, error = %v", resp.Response.Error)
+	if resp.Response.Success {
+		t.Fatalf("success = true with failed add, error = %v", resp.Response.Error)
+	}
+}
+
+func TestHandleAddUserReportsPartialRemovalFailure(t *testing.T) {
+	t.Parallel()
+
+	provider := &partialRemovalProvider{
+		successVlessProvider: successVlessProvider{
+			stubProvider: stubProvider{inboundTags: []string{"revoked"}},
+		},
+	}
+	service := nodehandler.NewService(provider, connections.NewDropper(nil))
+	body := `{
+		"data":[{"type":"vless","tag":"retained","username":"42","uuid":"new-uuid","flow":""}],
+		"hashData":{"vlessUuid":"new-uuid","prevVlessUuid":"old-uuid"}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/node/handler/add-user", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	service.HandleAddUser(rec, req, writeJSON)
+
+	var resp struct {
+		Response struct {
+			Success bool    `json:"success"`
+			Error   *string `json:"error"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Response.Success || resp.Response.Error == nil || *resp.Response.Error != "remove failed" {
+		t.Fatalf("expected cleanup failure response, got %#v", resp.Response)
+	}
+	if len(provider.hashRemoves) != 1 || provider.hashRemoves[0] != "retained:old-uuid" {
+		t.Fatalf("only the failed cleanup must retain its hash, got %#v", provider.hashRemoves)
+	}
+}
+
+func TestHandleAddUsersReportsPartialRemovalFailure(t *testing.T) {
+	t.Parallel()
+
+	provider := &partialRemovalProvider{
+		successVlessProvider: successVlessProvider{
+			stubProvider: stubProvider{inboundTags: []string{"revoked"}},
+		},
+	}
+	service := nodehandler.NewService(provider, connections.NewDropper(nil))
+	body := `{
+		"affectedInboundTags":["retained"],
+		"users":[{
+			"inboundData":[{"type":"vless","tag":"retained","flow":""}],
+			"userData":{"userId":"42","hashUuid":"old-uuid","vlessUuid":"new-uuid","trojanPassword":"","ssPassword":""}
+		}]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/node/handler/add-users", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	service.HandleAddUsers(rec, req, writeJSON)
+
+	var resp struct {
+		Response struct {
+			Success bool    `json:"success"`
+			Error   *string `json:"error"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Response.Success || resp.Response.Error == nil || *resp.Response.Error != "remove failed" {
+		t.Fatalf("expected cleanup failure response, got %#v", resp.Response)
 	}
 }
 

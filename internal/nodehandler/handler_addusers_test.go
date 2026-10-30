@@ -80,13 +80,14 @@ func TestHandleAddUsersAddsHashOnHandlerSuccess(t *testing.T) {
 
 	var resp struct {
 		Response struct {
-			Success bool `json:"success"`
+			Success bool    `json:"success"`
+			Error   *string `json:"error"`
 		} `json:"response"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
 	if !resp.Response.Success {
-		t.Fatal("expected success=true matching upstream addUsers contract")
+		t.Fatalf("expected success=true for a complete update, error=%v", resp.Response.Error)
 	}
 }
