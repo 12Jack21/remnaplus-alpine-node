@@ -16,7 +16,7 @@ else
   exit 1
 fi
 
-XRAY_CORE_VERSION="${XRAY_CORE_VERSION:-v26.6.27}"
+XRAY_CORE_VERSION="${XRAY_CORE_VERSION:-v26.10.31}"
 UPSTREAM_REPO="${UPSTREAM_REPO:-XTLS}"
 NODE_ENV="${NODE_ENV:-/etc/remnanode/node.env}"
 
@@ -81,22 +81,23 @@ detect_arch() {
 }
 
 xray_archive_sha256() {
-  case "$1" in
-    64)
-      if [ "$XRAY_CORE_VERSION" = "v26.6.27" ]; then
-        echo "${XRAY_SHA256_64:-b3e5902d06d6282fe53cfa2fc426058b9aeaa429b2c812e20887cd47f26d08bf}"
-      else
-        echo "${XRAY_SHA256_64:-}"
-      fi
-      ;;
-    arm64-v8a)
-      if [ "$XRAY_CORE_VERSION" = "v26.6.27" ]; then
-        echo "${XRAY_SHA256_ARM64:-13a251379bea366c2cf10363ad71e75734193d401f26f518bf0c25e5c8f8c931}"
-      else
-        echo "${XRAY_SHA256_ARM64:-}"
-      fi
-      ;;
+  local arch="$1"
+  local override=""
+  case "$arch" in
+    64) override="${XRAY_SHA256_64:-}" ;;
+    arm64-v8a) override="${XRAY_SHA256_ARM64:-}" ;;
     *) return 1 ;;
+  esac
+  if [ -n "$override" ]; then
+    echo "$override"
+    return 0
+  fi
+  case "${XRAY_CORE_VERSION}:${arch}" in
+    v26.10.31:64) echo "e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214" ;;
+    v26.10.31:arm64-v8a) echo "1811c8f1da0c3b6dc707ebaf1c8390e987ba39859a8f0a7aadd8526157f2ec8d" ;;
+    v26.6.27:64) echo "b3e5902d06d6282fe53cfa2fc426058b9aeaa429b2c812e20887cd47f26d08bf" ;;
+    v26.6.27:arm64-v8a) echo "13a251379bea366c2cf10363ad71e75734193d401f26f518bf0c25e5c8f8c931" ;;
+    *) echo "" ;;
   esac
 }
 
