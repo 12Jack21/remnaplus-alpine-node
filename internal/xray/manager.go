@@ -42,6 +42,7 @@ type TorrentBlockerConfigProvider interface {
 
 type Manager struct {
 	lifecycleMu      sync.Mutex
+	coreSwitchMu     sync.Mutex
 	mu               sync.RWMutex
 	xrayBin          string
 	geoDir           string
@@ -117,6 +118,8 @@ type StartResponse struct {
 type NodeInformation struct {
 	AccountingSnapshot bool    `json:"accountingSnapshot"`
 	Version            *string `json:"version"`
+	// Selectable Xray cores; omitted when this node cannot switch cores.
+	AvailableXrayVersions []string `json:"availableXrayVersions,omitempty"`
 }
 
 type StopResponse struct {
@@ -147,7 +150,7 @@ func NewManager(opts Options) (*Manager, error) {
 		disableHashCheck: opts.DisableHashCheck,
 		lowMemory:        opts.LowMemory,
 		warpProbePort:    opts.WarpProbePort,
-		coreLoader:       newCoreLoader(opts.XrayBin),
+		coreLoader:       newCoreLoader(opts.XrayBin, opts.DataDir),
 		geodataLoader:    newGeodataLoader(opts.GeoDir),
 	}
 	manager.refreshVersion()
@@ -743,8 +746,9 @@ func (m *Manager) startResponse(isStarted bool, message *string) StartResponse {
 		Version:   version,
 		Error:     message,
 		NodeInformation: NodeInformation{
-			AccountingSnapshot: true,
-			Version:            stringPtr(nodeversion.ReportedNodeVersion()),
+			AccountingSnapshot:    true,
+			Version:               stringPtr(nodeversion.ReportedNodeVersion()),
+			AvailableXrayVersions: m.coreLoader.availableCoreVersions(),
 		},
 		System: system.GetSnapshot(),
 	}

@@ -124,6 +124,10 @@ func (s *Server) handleNodeRoutes(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, envelope[xray.StopResponse]{Response: s.manager.Stop(true)})
 	case r.Method == http.MethodPost && path == "/node/xray/start":
 		s.handleStart(w, r)
+	case r.Method == http.MethodGet && path == "/node/xray/core-versions":
+		writeJSON(w, http.StatusOK, envelope[xray.CoreVersionsResponse]{Response: s.manager.CoreVersions()})
+	case r.Method == http.MethodPost && path == "/node/xray/core-version":
+		s.handleCoreVersionSwitch(w, r)
 
 	// stats
 	case r.Method == http.MethodPost && path == "/node/stats/get-user-online-status":
@@ -239,6 +243,35 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, envelope[xray.StartResponse]{Response: s.manager.Start(r.Context(), request)})
+}
+
+// handleCoreVersionSwitch matches the Docker node's POST /node/xray/core-version:
+// body {version, request}, response {current, previous, available}; failures
+// return HTTP 400 with the reason.
+func (s *Server) handleCoreVersionSwitch(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	var body xray.CoreSwitchRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if body.Version == "" {
+		writeError(w, http.StatusBadRequest, "Xray version is required")
+		return
+	}
+	if body.Request == nil || body.Request.XrayConfig == nil {
+		writeError(w, http.StatusBadRequest, "request.xrayConfig is required")
+		return
+	}
+	// Finish (or roll back) even if the dashboard disconnects; it waits 180 s.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 170*time.Second)
+	defer cancel()
+	response, err := s.manager.SwitchCoreVersion(ctx, body.Version, *body.Request)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, envelope[xray.CoreSwitchResponse]{Response: response})
 }
 
 func buildTLSConfig(payload secret.Payload) (*tls.Config, error) {

@@ -28,6 +28,8 @@ var responseShapeTests = map[string]func(t *testing.T){
 	"/node/xray/start":                          testXrayStartResponseShape,
 	"/node/xray/stop":                           testXrayStopResponseShape,
 	"/node/xray/healthcheck":                    testXrayHealthcheckResponseShape,
+	"/node/xray/core-versions":                  testXrayCoreVersionsResponseShape,
+	"/node/xray/core-version":                   testXrayCoreVersionResponseShape,
 	"/node/stats/get-user-online-status":        testGetUserOnlineStatusResponseShape,
 	"/node/stats/get-accounting-snapshot":       testGetAccountingSnapshotResponseShape,
 	"/node/stats/get-tcp-connections":           testGetTCPConnectionsResponseShape,
@@ -96,6 +98,22 @@ func testManager(t *testing.T) *xray.Manager {
 func encodeEnvelope(response any) []byte {
 	body, _ := json.Marshal(map[string]any{"response": response})
 	return body
+}
+
+func testXrayCoreVersionsResponseShape(t *testing.T) {
+	raw := encodeEnvelope(testManager(t).CoreVersions())
+	assertTopLevelResponse(t, raw)
+	assertJSONPath(t, raw, "response.available")
+	assertJSONPath(t, raw, "response.current")
+}
+
+func testXrayCoreVersionResponseShape(t *testing.T) {
+	// Same body the Docker node returns; the dashboard parses current/previous/available.
+	raw := encodeEnvelope(xray.CoreSwitchResponse{Current: "26.10.31", Previous: "26.6.27", Available: xray.SupportedCoreVersions})
+	assertTopLevelResponse(t, raw)
+	assertJSONPath(t, raw, "response.current")
+	assertJSONPath(t, raw, "response.previous")
+	assertJSONPath(t, raw, "response.available")
 }
 
 func testXrayStartResponseShape(t *testing.T) {

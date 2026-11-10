@@ -45,12 +45,14 @@ type coreSpec struct {
 type coreLoader struct {
 	paths       corePaths
 	managed     bool
+	versionsDir string
+	arch        string
 	download    artifactDownloadFunc
 	readVersion func(context.Context, string) (string, error)
 	now         func() time.Time
 }
 
-func newCoreLoader(activePath string) *coreLoader {
+func newCoreLoader(activePath string, dataDir ...string) *coreLoader {
 	clean := filepath.Clean(activePath)
 	dir := filepath.Dir(clean)
 	custom := filepath.Join(dir, "xray-custom")
@@ -63,6 +65,8 @@ func newCoreLoader(activePath string) *coreLoader {
 			marker: filepath.Join(dir, ".rw-core.json"),
 		},
 		managed:     filepath.Base(clean) == "rw-core",
+		versionsDir: versionsDirFor(dataDir),
+		arch:        runtimeCoreArch(),
 		download:    artifact.Download,
 		readVersion: readCoreVersion,
 		now:         time.Now,
@@ -82,6 +86,13 @@ func (l *coreLoader) prepare(ctx context.Context, geodata any) error {
 		return nil
 	}
 	if !present {
+		// A dashboard-selected core outlives restarts; otherwise use stock.
+		if version, ok := l.readSelection(); ok {
+			if l.activeTarget() == filepath.Clean(l.versionBinary(version)) {
+				return nil
+			}
+			return l.selectVersion(version)
+		}
 		return l.restoreStock()
 	}
 	if l.isInstalled(spec) {
@@ -93,6 +104,13 @@ func (l *coreLoader) prepare(ctx context.Context, geodata any) error {
 		log.Printf("warning: custom core installation failed: %v", err)
 	}
 	return nil
+}
+
+func versionsDirFor(dataDir []string) string {
+	if len(dataDir) == 0 || dataDir[0] == "" {
+		return ""
+	}
+	return filepath.Join(dataDir[0], "xray-cores")
 }
 
 func parseCoreSpec(geodata any) (coreSpec, bool, error) {
