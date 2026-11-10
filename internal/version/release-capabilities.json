@@ -13,6 +13,7 @@
     "tcp-history",
     "vision-ip-rules",
     "warp",
+    "xray-core-switch",
     "xray-management"
   ]
 }
